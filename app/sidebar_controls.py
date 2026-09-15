@@ -8,7 +8,7 @@
 from datetime import date
 import streamlit as st
 from constants import DEFAULT_CUSTOM_THRESHOLD, DEFAULT_MIN_CONSISTENT_PERIODS, THRESHOLD_PRESETS
-from filter_settings import save_filter_settings
+from filter_settings import save_filter_settings, reset_filter_settings
 from parsers import clean_criticality_tag
 
 
@@ -92,16 +92,25 @@ def render_business_rule_controls(saved_settings):
     off_days = st.sidebar.number_input("⏻ Ambang Days Powered Off", 1, 365, int(saved_settings.get("min_off_days", 30)), 1, help="VM dari file Power Off menjadi Kandidat Disposal jika Days Powered Off > ambang ini.", key="min_off_days_input")
     return off_days
 
-
-
 def render_filter_persistence_controls(current_settings, load_error):
     st.sidebar.header("💾 Simpan Pengaturan Filter")
     if load_error:
         st.sidebar.warning(f"Filter tersimpan gagal dibaca: {load_error}")
-    if st.sidebar.button("💾 Simpan Filter Saat Ini", key="save_filter_button"):
+
+    col1, col2 = st.sidebar.columns(2)
+    if col1.button("💾 Simpan Filter", key="save_filter_button"):
         ok, error = save_filter_settings(current_settings)
         if ok:
-            st.sidebar.success("✅ Filter tersimpan untuk sesi berikutnya.")
+            st.success("✅ Filter tersimpan.")
         else:
-            st.sidebar.error(f"❌ Gagal menyimpan filter: {error}")
-    st.sidebar.caption("Perubahan persisten setelah tombol simpan ditekan.")
+            st.error(f"❌ Gagal: {error}")
+
+    if col2.button("🗑️ Reset Default", type="primary", key="reset_filter_button"):
+        # reset_filter_settings() di-import dari filter_settings.py
+        ok, error = reset_filter_settings()
+        if ok:
+            st.rerun() # Memaksa Streamlit memuat ulang UI ke posisi default
+        else:
+            st.error(f"❌ Gagal: {error}")
+
+    st.sidebar.caption("Perubahan persisten setelah tombol ditekan.")

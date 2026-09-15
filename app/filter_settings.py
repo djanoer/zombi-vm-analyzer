@@ -40,3 +40,13 @@ def save_filter_settings(settings):
         return True, None
     except OSError as error:
         return False, str(error)
+
+
+def reset_filter_settings():
+    ensure_data_directory()
+    try:
+        if FILTER_SETTINGS_PATH.exists():
+            FILTER_SETTINGS_PATH.unlink() # Menghapus file JSON
+        return True, None
+    except OSError as error:
+        return False, str(error)

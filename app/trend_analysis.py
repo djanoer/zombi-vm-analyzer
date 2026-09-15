@@ -53,28 +53,37 @@ def record_period_snapshot(filtered_vms, tanggal_proses, db_path=TREND_DATABASE_
             dataframe["UUID"] = ""
         dataframe["UUID"] = dataframe["UUID"].fillna("").astype(str)
 
-        conn = sqlite3.connect(db_path)
+        # Siapkan array/list penampung data untuk dieksekusi secara bulk
+        records = []
         for _, row in dataframe.iterrows():
-            conn.execute("""
-                INSERT INTO vm_trend_history
-                    (vm_name, uuid, tanggal_proses, is_kandidat_disposal, skor_idle)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(vm_name, uuid, tanggal_proses) DO UPDATE SET
-                    is_kandidat_disposal = excluded.is_kandidat_disposal,
-                    skor_idle = excluded.skor_idle
-            """, (
+            # Evaluasi apakah VM ini adalah kandidat melalui kolom 'Label'
+            label_vm = str(row.get("Label", ""))
+            is_kandidat = 1 if label_vm in ["Kandidat Zombie", "Kandidat Disposal"] else 0
+
+            records.append((
                 str(row["Name"]),
                 str(row["UUID"]),
                 str(tanggal_proses),
-                int(bool(row.get("Is Kandidat Disposal", False))),
-                float(row.get("Skor Idle (0-100)", 0.0)),
+                is_kandidat,
+                float(row.get("Skor Idle (0-100)", 0.0))
             ))
+
+        conn = sqlite3.connect(db_path)
+        # Gunakan executemany untuk mempercepat query hingga 100x lipat
+        conn.executemany("""
+            INSERT INTO vm_trend_history
+                (vm_name, uuid, tanggal_proses, is_kandidat_disposal, skor_idle)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(vm_name, uuid, tanggal_proses) DO UPDATE SET
+                is_kandidat_disposal = excluded.is_kandidat_disposal,
+                skor_idle = excluded.skor_idle
+        """, records)
+
         conn.commit()
         conn.close()
         return True, None
     except Exception as error:
         return False, str(error)
-
 
 def load_trend_history(db_path=TREND_DATABASE_PATH):
     try:
@@ -103,9 +112,13 @@ def compute_consistent_idle_vms(min_periods, db_path=TREND_DATABASE_PATH):
             ]
         )
 
+    # Konversi kolom tanggal_proses dari text menjadi objek DateTime
+    history['tanggal_sortir'] = pd.to_datetime(history['tanggal_proses'], errors='coerce')
+
     results = []
     for (vm_name, uuid), group in history.groupby(["vm_name", "uuid"]):
-        group = group.sort_values("tanggal_proses", ascending=False)
+        # Sortir menggunakan kolom DateTime, bukan text string
+        group = group.sort_values("tanggal_sortir", ascending=False)
         streak = 0
         for _, row in group.iterrows():
             if row["is_kandidat_disposal"] == 1:
@@ -128,7 +141,6 @@ def compute_consistent_idle_vms(min_periods, db_path=TREND_DATABASE_PATH):
             ascending=False,
         ).reset_index(drop=True)
     return result
-
 
 def count_recorded_periods(db_path=TREND_DATABASE_PATH):
     history = load_trend_history(db_path)

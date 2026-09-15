@@ -25,6 +25,7 @@ from debug_view import render_pipeline_debug, render_raw_data_debug
 from disposal_rules import merge_disposal_and_zombie
 from filter_settings import load_filter_settings
 from manual_book import render_manual_book
+from parsers import clean_criticality_tag
 from results_view import render_results_section, render_validation_section
 from sidebar_controls import (
     render_analysis_date_control,
@@ -163,15 +164,31 @@ try:
     }
     render_filter_persistence_controls(current_settings, filter_load_error)
 
+    # -------------------------------------------------------------
+    # Logika Filter Uptime (> minimum) & Max Dinamis
+    # -------------------------------------------------------------
+    # 1. Deteksi VM yang statusnya mati (PoweredOff, suspended, dsb)
+    is_powered_off = active_vms["State"].str.lower().str.contains("off|suspend|inactive", na=False)
 
-    # FIX #4A: Exclude VM dengan uptime 0 atau negatif
-    uptime_mask = (
-        (active_vms["Uptime / Days"] > 0)  # <-- FIX: Exclude uptime 0
-        & (active_vms["Uptime / Days"].between(min_uptime, max_uptime))
-        | active_vms["Kualitas Data"].eq("Tidak Diketahui")
+    # 2. Ambil nilai maksimum aktual dari data Uptime
+    data_max_uptime = active_vms["Uptime / Days"].max()
+    # Jika max_uptime dari UI kosong/0, gunakan nilai maksimum dari data
+    actual_max_uptime = max_uptime if max_uptime else data_max_uptime
+
+    # 3. Aturan Uptime: Lebih besar (>) dari minimum DAN Lebih kecil sama dengan (<=) maksimum
+    valid_uptime = (
+        (active_vms["Uptime / Days"] > min_uptime) &
+        (active_vms["Uptime / Days"] <= actual_max_uptime)
     )
-    filtered_vms = active_vms.loc[uptime_mask].copy()
 
+    # 4. Kualitas data tidak diketahui (bypass)
+    unknown_uptime = active_vms["Kualitas Data"].eq("Tidak Diketahui")
+
+    # 5. Gabungkan kondisi
+    uptime_mask = is_powered_off | valid_uptime | unknown_uptime
+
+    filtered_vms = active_vms.loc[uptime_mask].copy()
+    # -------------------------------------------------------------
 
     if selected_tags:
         allowed_tags = [
@@ -187,10 +204,16 @@ try:
         filtered_vms = filtered_vms.loc[tag_mask].copy()
 
 
+    # Jangan lupa import clean_criticality_tag dari parsers di bagian atas
     for column in OPTIONAL_COLUMNS:
         if column not in filtered_vms.columns:
             filtered_vms[column] = 0
 
+    # Membuat kolom baru 'Kritikalitas' dari kolom Tag
+    if "Summary|vSphere Tag" in filtered_vms.columns:
+        filtered_vms["Kritikalitas"] = filtered_vms["Summary|vSphere Tag"].fillna("").apply(clean_criticality_tag)
+    else:
+        filtered_vms["Kritikalitas"] = "Unknown"
 
     analyzed_vms, zombie_candidates = run_zombie_analysis(
         filtered_vms,
@@ -282,7 +305,7 @@ try:
     # PEMBARUAN: Parameter disesuaikan agar panel Validasi persis mencerminkan Tabel
     render_validation_section(
         raw_dataframe,
-        active_vms,
+        filtered_vms,
         combined_candidates,
         memory_column,
         parse_fail_counts,
@@ -291,14 +314,19 @@ try:
         max_throughput,
         max_network,
         min_off_days,
-        total_in_table,  # <-- NEW: match dengan tabel
-        total_zombie,    # <-- NEW
-        total_disposal,  # <-- NEW
-        total_with_score # <-- NEW
+        total_in_table,
+        total_zombie,
+        total_disposal,
+        total_with_score
     )
 
 
-    render_results_section(combined_candidates, memory_column, updated_by, tanggal_proses)
+    # Hanya ambil VM yang labelnya BUKAN "Tidak Ditandai"
+    kandidat_only = combined_candidates[combined_candidates["Label"] != "Tidak Ditandai"].copy()
+
+    # Masukkan variabel kandidat_only, BUKAN combined_candidates
+    render_results_section(kandidat_only, memory_column, updated_by, tanggal_proses)
+    # -------------------------------------------------------------
 
 
     record_success, record_error = record_period_snapshot(

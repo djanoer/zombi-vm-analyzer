@@ -73,6 +73,7 @@ def render_validation_section(
 
         with col_detail1:
             st.markdown("**⚙️ Ambang Batas (Threshold)**")
+            st.write(f"- **Uptime Target:** {active_vms['Uptime / Days'].min() if active_vms is not None and not active_vms.empty else 0} sd {active_vms['Uptime / Days'].max() if active_vms is not None and not active_vms.empty else 0} hari")
             st.write(f"- **Disposal:** > {min_off_days} hari Power Off")
             st.write(f"- **Zombie CPU:** <= {max_cpu}%")
             st.write(f"- **Zombie IOPS:** <= {max_iops}")
@@ -111,7 +112,7 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
 
 
     preview_columns = [
-        "Name", "State", "Uptime / Days", "Days Powered Off", "Label",
+        "Name", "Kritikalitas", "State", "Uptime / Days", "Days Powered Off", "Label", # <-- TAMBAH Kritikalitas di sini
         "Skor Idle (0-100)", "CPU Percentile 95%", "IOPS Percentile 95%",
         "Throughput Percentile 95%", memory_column,
         "Network I/O | Usage Rate (KBps) - 95th Percentile",
