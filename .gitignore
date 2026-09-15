@@ -71,11 +71,10 @@ dist/
 .eggs/
 
 # ============================================================
-# Local application state
+# Local application state & databases
 # ============================================================
 
-data/filter_settings.json
-data/status_tracking.db
+data/
 status_tracking.db
 filter_settings.json
 
