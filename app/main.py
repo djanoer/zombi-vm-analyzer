@@ -200,32 +200,6 @@ try:
         max_network,
     )
 
-
-    # FIX #1: Filter VM dengan Skor Idle = 0 (VM aktif, bukan kandidat zombie)
-    analyzed_vms = analyzed_vms[analyzed_vms["Skor Idle (0-100)"] > 0].copy()
-    zombie_candidates = zombie_candidates[zombie_candidates["Skor Idle (0-100)"] > 0].copy()
-
-
-    # DEBUG: Tampilkan info jika ada VM skor 0
-    if debug_mode:
-        st.write("### DEBUG: Info Analisis Zombie")
-        st.write(f"analyzed_vms sebelum filter: {len(filtered_vms)} VM")
-        st.write(f"analyzed_vms setelah filter: {len(analyzed_vms)} VM")
-
-        if not analyzed_vms.empty:
-            st.write(f"Skor Idle min: {analyzed_vms['Skor Idle (0-100)'].min()}")
-            st.write(f"Skor Idle max: {analyzed_vms['Skor Idle (0-100)'].max()}")
-            skor_positive = len(analyzed_vms[analyzed_vms["Skor Idle (0-100)"] > 0])
-            st.write(f"VM dengan skor > 0: {skor_positive}")
-        else:
-            st.warning("⚠️ analyzed_vms kosong setelah filter — tidak ada VM zombie!")
-
-        uptime_zero = filtered_vms[filtered_vms["Uptime / Days"] == 0]
-        if not uptime_zero.empty:
-            st.warning(f"⚠️ Ditemukan {len(uptime_zero)} VM dengan uptime 0!")
-            st.dataframe(uptime_zero[["Name", "Uptime / Days", "State"]].head(10))
-
-
     master_dataframe = filtered_vms.copy()
 
 
@@ -265,42 +239,20 @@ try:
         keep="first",
     )
 
-    # FIX: Consolidate merge analyzed_vms - hanya 1 merge, tidak double
-    if not analyzed_vms.empty and "Is Kandidat Zombie" in analyzed_vms.columns:
-        combined_candidates = combined_candidates.merge(
-            analyzed_vms[["Name", "UUID", "Is Kandidat Zombie", "Skor Idle (0-100)", "Status Justifikasi"]],
-            on=["Name", "UUID"],
-            how="left",
-            suffixes=("", " Analysis")
-        )
-
-        # Update kolom HANYA untuk VM yang ada di analyzed_vms (mask not null)
-        zombie_analysis_mask = combined_candidates["Is Kandidat Zombie Analysis"].notna()
-
-        combined_candidates.loc[zombie_analysis_mask, "Is Kandidat Zombie"] = combined_candidates.loc[
-            zombie_analysis_mask, "Is Kandidat Zombie Analysis"
-        ]
-        combined_candidates.loc[zombie_analysis_mask, "Skor Idle (0-100)"] = combined_candidates.loc[
-            zombie_analysis_mask, "Skor Idle (0-100) Analysis"
-        ]
-        combined_candidates.loc[zombie_analysis_mask, "Status Justifikasi"] = combined_candidates.loc[
-            zombie_analysis_mask, "Status Justifikasi Analysis"
-        ]
-
-        # Drop kolom duplikat hasil merge
-        combined_candidates = combined_candidates.drop(
-            columns=["Is Kandidat Zombie Analysis", "Skor Idle (0-100) Analysis", "Status Justifikasi Analysis"]
-        )
-    else:
-        # Jika analyzed_vms kosong, set default values
-        combined_candidates["Is Kandidat Zombie"] = False
-        combined_candidates["Skor Idle (0-100)"] = 0.0
-        # SKIP: combined_candidates["Status Justifikasi"] = ... (jangan fillna!)
-
-    # FIX: Hanya fillna untuk VM yang benar-benar tidak punya justifikasi
-    combined_candidates["Status Justifikasi"] = combined_candidates["Status Justifikasi"].fillna(
-        "VM tidak terdeteksi oleh analisis."
+    combined_candidates = combined_candidates.merge(
+        analysis_result,
+        on=["Name", "UUID"],
+        how="left",
+        suffixes=("", " Analysis"),
     )
+
+    combined_candidates["Skor Idle (0-100)"] = combined_candidates[
+        "Skor Idle (0-100)"
+    ].fillna(0.0)
+
+    combined_candidates["Status Justifikasi"] = combined_candidates[
+        "Status Justifikasi"
+    ].fillna("VM tidak terdeteksi oleh analisis.")
 
     combined_candidates["Label"] = combined_candidates["Label"].fillna("Tidak Ditandai")
     is_zombie_mask = combined_candidates["Is Kandidat Zombie"] == True
