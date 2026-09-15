@@ -71,8 +71,6 @@ def render_tag_filter(active_vms):
     # Tambahkan key dan default=[] agar bisa dikontrol dan di-reset
     return tag_mapping, st.sidebar.multiselect("🏷️ Filter Tag Kritikalitas", sorted(tag_mapping), default=[], help="Kosongkan untuk semua tag.", key="tag_filter_input")
 
-
-
 def render_threshold_controls(saved_settings):
     st.sidebar.header("⚙️ Threshold Zombie VM (Aktif)")
     options = ["Custom (Atur Manual)"] + list(THRESHOLD_PRESETS)
@@ -111,14 +109,15 @@ def render_threshold_controls(saved_settings):
     # Number input untuk custom threshold (lebih presisi daripada slider)
     st.sidebar.markdown("**Custom Threshold (opsional):**")
 
+    # PERBAIKAN: Pastikan semua parameter float untuk konsistensi tipe data
     cpu = st.sidebar.number_input(
         "📉 Batas CPU P95 (%)",
         min_value=0.0,
         max_value=100.0,
-        value=values["cpu"],
+        value=float(values["cpu"]),  # Force float
         step=0.1,
         format="%.1f",
-        disabled=(preset in THRESHOLD_PRESETS),  # Hanya disable jika preset dipilih
+        disabled=(preset in THRESHOLD_PRESETS),
         help="VM dengan CPU P95 ≤ threshold ini akan dianggap kandidat zombie. Rekomendasi: 0.8%",
         key="max_cpu_input"
     )
@@ -127,7 +126,7 @@ def render_threshold_controls(saved_settings):
         "💽 Batas IOPS P95",
         min_value=0.0,
         max_value=1000.0,
-        value=values["iops"],
+        value=float(values["iops"]),  # Force float
         step=0.5,
         format="%.1f",
         disabled=(preset in THRESHOLD_PRESETS),
@@ -139,7 +138,7 @@ def render_threshold_controls(saved_settings):
         "📡 Batas Throughput P95 (KBps)",
         min_value=0.0,
         max_value=1000.0,
-        value=values["throughput"],
+        value=float(values["throughput"]),  # Force float
         step=0.01,
         format="%.2f",
         disabled=(preset in THRESHOLD_PRESETS),
@@ -151,7 +150,7 @@ def render_threshold_controls(saved_settings):
         "🌐 Batas Network P95 (KBps)",
         min_value=0.0,
         max_value=10000.0,
-        value=values["network"],
+        value=float(values["network"]),  # Force float
         step=1.0,
         format="%.0f",
         disabled=(preset in THRESHOLD_PRESETS),
@@ -164,6 +163,7 @@ def render_threshold_controls(saved_settings):
         cpu, iops, throughput, network = values["cpu"], values["iops"], values["throughput"], values["network"]
 
     return preset, cpu, iops, throughput, network
+
 
 def render_business_rule_controls(saved_settings):
     st.sidebar.header("🏷️ Aturan Disposal Tambahan")
