@@ -74,14 +74,14 @@ def render_tag_filter(active_vms):
 
 
 def render_threshold_controls(saved_settings):
-    st.sidebar.header("⚙️ Threshold Skor Idle P95")
+    st.sidebar.header("⚙️ Threshold Zombie VM (Aktif)")
     options = ["Custom (Atur Manual)"] + list(THRESHOLD_PRESETS)
     saved_preset = saved_settings.get("preset_mode", options[0])
     preset = st.sidebar.selectbox(
         "🎯 Preset Agresivitas",
         options,
         index=options.index(saved_preset) if saved_preset in options else 0,
-        help="Preset mengatur CPU/IOPS/Throughput/Network P95. Pilih 'Custom' untuk set manual.",
+        help="Preset mengatur CPU/IOPS/Throughput/Network P95 untuk VM Aktif. Pilih 'Custom' untuk set manual.",
         key="preset_mode_input"
     )
 
@@ -118,7 +118,7 @@ def render_threshold_controls(saved_settings):
         value=values["cpu"],
         step=0.1,
         format="%.1f",
-        disabled=(preset in THRESHOLD_PRESETS),
+        disabled=(preset in THRESHOLD_PRESETS),  # Hanya disable jika preset dipilih
         help="VM dengan CPU P95 ≤ threshold ini akan dianggap kandidat zombie. Rekomendasi: 0.8%",
         key="max_cpu_input"
     )
@@ -165,11 +165,18 @@ def render_threshold_controls(saved_settings):
 
     return preset, cpu, iops, throughput, network
 
-
-
 def render_business_rule_controls(saved_settings):
     st.sidebar.header("🏷️ Aturan Disposal Tambahan")
-    off_days = st.sidebar.number_input("⏻ Ambang Days Powered Off", 1, 365, int(saved_settings.get("min_off_days", 30)), 1, help="VM dari file Power Off menjadi Kandidat Disposal jika Days Powered Off > ambang ini.", key="min_off_days_input")
+    off_days = st.sidebar.number_input(
+        "⏻ Ambang Days Powered Off",
+        min_value=1,
+        max_value=365,
+        value=int(saved_settings.get("min_off_days", 30)),
+        step=1,
+        help="VM dari file Power Off menjadi Kandidat Disposal jika Days Powered Off > ambang ini. "
+             "Threshold ini independen dari threshold Zombie VM Aktif.",
+        key="min_off_days_input"
+    )
     return off_days
 
 def render_filter_persistence_controls(current_settings, load_error):
