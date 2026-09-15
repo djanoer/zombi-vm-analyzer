@@ -82,6 +82,7 @@ filter_settings.json
 # Local and production datasets
 # ============================================================
 
+output/
 test_data/
 *.csv
 *.xlsx

@@ -7,10 +7,26 @@
 import json
 from app_config import FILTER_SETTINGS_PATH, ensure_data_directory
 
+# ==============================================================================
+# UPDATE (16 Sep 2026): Default threshold disesuaikan dengan distribusi data
+# - Berdasarkan analisis 2929 VM dari vROps export
+# - False positive rate target: < 10% untuk environment banking
+# - Threshold default: CPU ≤ 0.8%, IOPS ≤ 2.0, Throughput ≤ 0.10 KBps
+# ==============================================================================
+
 DEFAULT_SETTINGS = {
-    "selected_states": [], "preset_mode": "Custom (Atur Manual)",
-    "max_cpu": 3.0, "max_iops": 5.0, "max_throughput": 10.0, "max_network": 10.0,
-    "min_consistent_periods": 3, "min_uptime": None, "max_uptime": None,
+    "selected_states": [],
+    "preset_mode": "Konservatif (False Positive < 10%) — REKOMENDASI",
+
+    # Threshold default — REKOMENDASI untuk banking environment
+    "max_cpu": 0.8,        # CPU P95 ≤ 0.8% (P25 = 0.83 dari distribusi)
+    "max_iops": 2.0,       # IOPS P95 ≤ 2.0 (P25 = 2.13 dari distribusi)
+    "max_throughput": 0.10,  # Throughput P95 ≤ 0.10 KBps (P25 = 0.08 dari distribusi)
+    "max_network": 50,     # Network P95 ≤ 50 KBps (conservative default)
+
+    "min_consistent_periods": 3,
+    "min_uptime": 14,      # Exclude VM baru deploy (< 14 hari)
+    "max_uptime": None,
     "min_off_days": 30,
 }
 
