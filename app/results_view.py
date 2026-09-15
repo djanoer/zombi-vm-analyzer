@@ -177,11 +177,10 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
                     updated_by,
                 )
                 if success_count > 0:
-                    st.success(
-                        f"✅ Berhasil menyimpan pembaruan status untuk {success_count} VM."
-                    )
+                    # Menggunakan toast agar tabel tidak tergeser oleh blok pesan hijau
+                    st.toast(f"Berhasil menyimpan pembaruan status untuk {success_count} VM.", icon="✅")
                 else:
-                    st.info("Tidak ada perubahan baru yang direkam (status sama dengan sebelumnya).")
+                    st.toast("Tidak ada perubahan baru yang direkam.", icon="ℹ️")
 
 
     buffer = io.BytesIO()

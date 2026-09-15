@@ -47,14 +47,15 @@ def render_status_filter(unique_states, default_active_states, saved_settings):
 def render_uptime_filter(active_vms, saved_settings):
     st.sidebar.header("🗓️ Rentang Target Uptime (Hari)")
 
-    # FIX #1: Cap max_data ke nilai reasonable (2000 hari = ~5.5 tahun)
     min_data = int(active_vms["Uptime / Days"].min()) if not active_vms.empty else 0
     max_data = int(active_vms["Uptime / Days"].max()) if not active_vms.empty else 0
     max_data = min(max_data, 2000)  # Cap ke 2000 hari
 
     saved_min, saved_max = saved_settings.get("min_uptime"), saved_settings.get("max_uptime")
-    default_min = saved_min if isinstance(saved_min, int) and min_data <= saved_min <= max_data else min_data
-    default_max = saved_max if isinstance(saved_max, int) and min_data <= saved_max <= max_data else max_data
+
+    # PERBAIKAN: Ubah fallback default_min menjadi 0 mutlak sesuai permintaan
+    default_min = saved_min if isinstance(saved_min, int) and 0 <= saved_min <= max_data else 0
+    default_max = saved_max if isinstance(saved_max, int) and 0 <= saved_max <= max_data else max_data
 
     first, second = st.sidebar.columns(2)
     min_uptime = first.number_input("Minimum", 0, max_data, default_min, 1, help="Batas uptime minimum untuk analisis Zombie.", key="min_uptime_input")
@@ -62,13 +63,13 @@ def render_uptime_filter(active_vms, saved_settings):
     return min_uptime, max_uptime
 
 
-
 def render_tag_filter(active_vms):
     raw_tags = active_vms["Summary|vSphere Tag"].dropna().unique().tolist()
     tag_mapping = {}
     for tag in raw_tags:
         tag_mapping.setdefault(clean_criticality_tag(tag), []).append(tag)
-    return tag_mapping, st.sidebar.multiselect("🏷️ Filter Tag Kritikalitas", sorted(tag_mapping), help="Kosongkan untuk semua tag.")
+    # Tambahkan key dan default=[] agar bisa dikontrol dan di-reset
+    return tag_mapping, st.sidebar.multiselect("🏷️ Filter Tag Kritikalitas", sorted(tag_mapping), default=[], help="Kosongkan untuk semua tag.", key="tag_filter_input")
 
 
 
@@ -111,16 +112,35 @@ def render_filter_persistence_controls(current_settings, load_error):
     if col1.button("💾 Simpan Filter", key="save_filter_button"):
         ok, error = save_filter_settings(current_settings)
         if ok:
-            st.success("✅ Filter tersimpan.")
+            st.toast("Filter berhasil disimpan untuk sesi berikutnya.", icon="💾")
         else:
-            st.error(f"❌ Gagal: {error}")
+            st.toast(f"Gagal menyimpan filter: {error}", icon="❌")
 
     if col2.button("🗑️ Reset Default", type="primary", key="reset_filter_button"):
-        # reset_filter_settings() di-import dari filter_settings.py
         ok, error = reset_filter_settings()
         if ok:
-            st.rerun() # Memaksa Streamlit memuat ulang UI ke posisi default
+            import time
+            keys_to_clear = [
+                "min_consistent_periods_input",
+                "selected_states_input",
+                "min_uptime_input",
+                "max_uptime_input",
+                "tag_filter_input",
+                "preset_mode_input",
+                "max_cpu_input",
+                "max_iops_input",
+                "max_throughput_input",
+                "max_network_input",
+                "min_off_days_input"
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+            st.toast("Filter dikembalikan ke pengaturan default.", icon="🔄")
+            time.sleep(1)
+            st.rerun()
         else:
-            st.error(f"❌ Gagal: {error}")
+            st.toast(f"Gagal me-reset filter: {error}", icon="❌")
 
     st.sidebar.caption("Perubahan persisten setelah tombol ditekan.")

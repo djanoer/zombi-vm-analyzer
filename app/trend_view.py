@@ -43,12 +43,25 @@ def render_trend_section(min_periods, tanggal_proses, record_success, record_err
         return
 
     st.warning(f"⚠️ Ditemukan **{len(consistent_df)} VM** yang konsisten idle {min_periods}+ periode berturut-turut TANPA GAP — kandidat prioritas tinggi untuk Housekeeping.")
+    # Tambahkan visual metric di atas tabel
+    st.metric(label="🚨 Total VM Kritis (Konsisten Idle)", value=f"{len(consistent_df)} VM")
+
+    # Ambil nilai maksimal periode untuk skala progress bar (minimal skala 12 bulan)
+    max_streak = max(12, int(consistent_df["Jumlah Periode Idle Berturut-turut"].max()))
+
     st.dataframe(
         consistent_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Jumlah Periode Idle Berturut-turut": st.column_config.NumberColumn("Periode Berturut-turut", width="small"),
+            # Mengubah NumberColumn menjadi ProgressColumn yang elegan
+            "Jumlah Periode Idle Berturut-turut": st.column_config.ProgressColumn(
+                "Periode Berturut-turut",
+                help="Visualisasi durasi idle tanpa henti",
+                format="%d periode",
+                min_value=0,
+                max_value=max_streak,
+            ),
             "Periode Terakhir": st.column_config.TextColumn("Periode Terakhir", width="small"),
         },
     )

@@ -61,6 +61,16 @@ metric_files = st.file_uploader(
     accept_multiple_files=True,
     help="File master seluruh VM dan metrik utama.",
 )
+
+raw_dataframe = None
+failed_metric_files = []
+if metric_files:
+    raw_dataframe, failed_metric_files, _ = load_and_merge_uploads(metric_files)
+    for filename, error in failed_metric_files:
+        st.error(f"❌ Gagal memproses file metrik **{filename}**: {error}")
+    if raw_dataframe is not None and not raw_dataframe.empty:
+        st.success(f"CSV Metrik: {len(raw_dataframe)} VM master berhasil dimuat.")
+
 poweroff_files = st.file_uploader(
     "⏻ Upload CSV Power Off (Opsional)",
     type=["csv"],
@@ -68,6 +78,15 @@ poweroff_files = st.file_uploader(
     help="File tambahan Days Powered Off untuk enrichment VM master.",
 )
 
+power_off_dataframe = None
+if poweroff_files:
+    power_off_dataframe, failed_poweroff_files = load_power_off_uploads(poweroff_files)
+    for filename, error in failed_poweroff_files:
+        st.error(f"❌ Gagal memproses file Power Off **{filename}**: {error}")
+    if power_off_dataframe is not None:
+        st.success(
+            f"CSV Power Off: {len(power_off_dataframe)} VM enrichment berhasil dimuat."
+        )
 
 render_manual_book()
 saved_settings, filter_load_error = load_filter_settings()
@@ -75,8 +94,7 @@ debug_mode = render_debug_toggle()
 updated_by = render_user_identity()
 tanggal_proses = render_analysis_date_control()
 
-
-if not metric_files:
+if not metric_files or raw_dataframe is None or raw_dataframe.empty:
     st.info("⬆️ Upload CSV Metrik untuk memulai analisis.")
     st.stop()
 
@@ -86,26 +104,15 @@ try:
     for filename, error in failed_metric_files:
         st.error(f"❌ Gagal memproses file metrik **{filename}**: {error}")
 
-
     if raw_dataframe is None or raw_dataframe.empty:
         st.error("Tidak ada CSV metrik yang berhasil dimuat.")
         st.stop()
 
-
-    st.success(f"CSV Metrik: {len(raw_dataframe)} VM master berhasil dimuat.")
-
-
     power_off_dataframe = None
     if poweroff_files:
-        power_off_dataframe, failed_poweroff_files = load_power_off_uploads(
-            poweroff_files
-        )
+        power_off_dataframe, failed_poweroff_files = load_power_off_uploads(poweroff_files)
         for filename, error in failed_poweroff_files:
             st.error(f"❌ Gagal memproses file Power Off **{filename}**: {error}")
-        if power_off_dataframe is not None:
-            st.success(
-                f"CSV Power Off: {len(power_off_dataframe)} VM enrichment berhasil dimuat."
-            )
 
 
     memory_column = resolve_memory_column(raw_dataframe)
