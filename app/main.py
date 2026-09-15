@@ -301,8 +301,6 @@ try:
             parse_fail_counts,
         )
 
-
-    # PEMBARUAN: Parameter disesuaikan agar panel Validasi persis mencerminkan Tabel
     render_validation_section(
         raw_dataframe,
         filtered_vms,
@@ -314,6 +312,8 @@ try:
         max_throughput,
         max_network,
         min_off_days,
+        min_uptime,
+        max_uptime,
         total_in_table,
         total_zombie,
         total_disposal,

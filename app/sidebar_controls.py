@@ -77,12 +77,22 @@ def render_threshold_controls(saved_settings):
     options = ["Custom (Atur Manual)"] + list(THRESHOLD_PRESETS)
     saved_preset = saved_settings.get("preset_mode", options[0])
     preset = st.sidebar.selectbox("🎯 Preset Agresivitas", options, index=options.index(saved_preset) if saved_preset in options else 0, help="Preset mengatur CPU/IOPS/Throughput/Network P95.", key="preset_mode_input")
+    if preset in THRESHOLD_PRESETS:
+        st.session_state["max_cpu_input"] = THRESHOLD_PRESETS[preset]["cpu"]
+        st.session_state["max_iops_input"] = THRESHOLD_PRESETS[preset]["iops"]
+        st.session_state["max_throughput_input"] = THRESHOLD_PRESETS[preset]["throughput"]
+        st.session_state["max_network_input"] = THRESHOLD_PRESETS[preset]["network"]
     values = THRESHOLD_PRESETS[preset] if preset in THRESHOLD_PRESETS else {key: float(saved_settings.get(f"max_{key}", DEFAULT_CUSTOM_THRESHOLD[key])) for key in ["cpu", "iops", "throughput", "network"]}
     disabled = preset in THRESHOLD_PRESETS
+
     cpu = st.sidebar.slider("📉 Batas CPU P95 (%)", 1.0, 10.0, values["cpu"], 0.5, disabled=disabled, help="Syarat AND kandidat + bobot 20%.", key="max_cpu_input")
     iops = st.sidebar.slider("💽 Batas IOPS P95", 1.0, 50.0, values["iops"], 1.0, disabled=disabled, help="Syarat AND kandidat + bobot 25%.", key="max_iops_input")
     throughput = st.sidebar.slider("📡 Batas Throughput P95", 1.0, 200.0, values["throughput"], 1.0, disabled=disabled, help="Syarat AND kandidat + bobot 25%.", key="max_throughput_input")
     network = st.sidebar.slider("🌐 Batas Network P95 (KBps)", 0.1, 1000.0, values["network"], 0.5, disabled=disabled, help="Syarat AND kandidat + bobot 15%.", key="max_network_input")
+
+    if preset in THRESHOLD_PRESETS:
+        cpu, iops, throughput, network = values["cpu"], values["iops"], values["throughput"], values["network"]
+
     return preset, cpu, iops, throughput, network
 
 

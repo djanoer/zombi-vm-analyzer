@@ -38,10 +38,12 @@ def render_validation_section(
     max_throughput,
     max_network,
     min_off_days,
-    total_in_table=None,  # <-- NEW: match dengan tabel
-    total_zombie=None,    # <-- NEW
-    total_disposal=None,  # <-- NEW
-    total_with_score=None # <-- NEW
+    min_uptime=0,
+    max_uptime=0,
+    total_in_table=None,
+    total_zombie=None,
+    total_disposal=None,
+    total_with_score=None
 ):
     with st.expander("🔎 Validasi & Sanity Check Analisa", expanded=True):
         st.markdown("### 📊 Ringkasan Pemrosesan Data (Relevan dengan Tabel)")
@@ -73,7 +75,7 @@ def render_validation_section(
 
         with col_detail1:
             st.markdown("**⚙️ Ambang Batas (Threshold)**")
-            st.write(f"- **Uptime Target:** {active_vms['Uptime / Days'].min() if active_vms is not None and not active_vms.empty else 0} sd {active_vms['Uptime / Days'].max() if active_vms is not None and not active_vms.empty else 0} hari")
+            st.write(f"- **Uptime Target:** {min_uptime} sd {max_uptime} hari")
             st.write(f"- **Disposal:** > {min_off_days} hari Power Off")
             st.write(f"- **Zombie CPU:** <= {max_cpu}%")
             st.write(f"- **Zombie IOPS:** <= {max_iops}")
