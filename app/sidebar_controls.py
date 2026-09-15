@@ -3,6 +3,7 @@
 # ------------------------------------------------------------------------------
 #  UPDATE: Aturan Bisnis Tambahan kini hanya memiliki kontrol Days Powered Off.
 #  Info singkat setiap widget tersedia melalui ikon help '?'.
+#  FIX #1: Cap max_data ke nilai reasonable (2000 hari) untuk slider uptime
 # ==============================================================================
 from datetime import date
 import streamlit as st
@@ -11,9 +12,11 @@ from filter_settings import save_filter_settings
 from parsers import clean_criticality_tag
 
 
+
 def render_debug_toggle():
     st.sidebar.header("🐞 Mode Debug")
     return st.sidebar.checkbox("Aktifkan Mode Debug", value=st.session_state.get("debug_mode", False), help="Tampilkan kolom, dtype, preview data, pipeline, dan traceback.", key="debug_mode")
+
 
 
 def render_user_identity():
@@ -21,13 +24,16 @@ def render_user_identity():
     return st.sidebar.text_input("Nama Anda", value=st.session_state.get("updated_by_name", ""), help="Dicatat sebagai updated_by pada Status HK.", key="updated_by_name")
 
 
+
 def render_analysis_date_control():
     st.sidebar.header("🗓️ Periode Analisa")
     return st.sidebar.date_input("Tanggal Analisa Ini", value=date.today(), help="Tanggal snapshot tren; tanggal sama melakukan upsert.", key="tanggal_proses_input")
 
 
+
 def render_min_consistent_periods_control(saved_settings):
     return st.sidebar.slider("📈 Min. Periode Konsisten Idle", 2, 12, int(saved_settings.get("min_consistent_periods", DEFAULT_MIN_CONSISTENT_PERIODS)), 1, help="Minimum periode idle berturut-turut tanpa gap.", key="min_consistent_periods_input")
+
 
 
 def render_status_filter(unique_states, default_active_states, saved_settings):
@@ -37,16 +43,24 @@ def render_status_filter(unique_states, default_active_states, saved_settings):
     return st.sidebar.multiselect("Status yang dianggap Aktif", unique_states, default=valid_saved or default_active_states, help="Dipakai untuk Skor Idle/Zombie. VM OFF diproses dari file Power Off.", key="selected_states_input")
 
 
+
 def render_uptime_filter(active_vms, saved_settings):
     st.sidebar.header("🗓️ Rentang Target Uptime (Hari)")
-    min_data, max_data = int(active_vms["Uptime / Days"].min()), int(active_vms["Uptime / Days"].max())
+
+    # FIX #1: Cap max_data ke nilai reasonable (2000 hari = ~5.5 tahun)
+    min_data = int(active_vms["Uptime / Days"].min()) if not active_vms.empty else 0
+    max_data = int(active_vms["Uptime / Days"].max()) if not active_vms.empty else 0
+    max_data = min(max_data, 2000)  # Cap ke 2000 hari
+
     saved_min, saved_max = saved_settings.get("min_uptime"), saved_settings.get("max_uptime")
     default_min = saved_min if isinstance(saved_min, int) and min_data <= saved_min <= max_data else min_data
-    default_max = saved_max if isinstance(saved_max, int) and min_data <= saved_max <= max_data + 500 else max_data
+    default_max = saved_max if isinstance(saved_max, int) and min_data <= saved_max <= max_data else max_data
+
     first, second = st.sidebar.columns(2)
     min_uptime = first.number_input("Minimum", 0, max_data, default_min, 1, help="Batas uptime minimum untuk analisis Zombie.", key="min_uptime_input")
-    max_uptime = second.number_input("Maksimum", 0, max_data + 500, default_max, 1, help="Batas uptime maksimum untuk analisis Zombie.", key="max_uptime_input")
+    max_uptime = second.number_input("Maksimum", 0, max_data, default_max, 1, help="Batas uptime maksimum untuk analisis Zombie.", key="max_uptime_input")
     return min_uptime, max_uptime
+
 
 
 def render_tag_filter(active_vms):
@@ -55,6 +69,7 @@ def render_tag_filter(active_vms):
     for tag in raw_tags:
         tag_mapping.setdefault(clean_criticality_tag(tag), []).append(tag)
     return tag_mapping, st.sidebar.multiselect("🏷️ Filter Tag Kritikalitas", sorted(tag_mapping), help="Kosongkan untuk semua tag.")
+
 
 
 def render_threshold_controls(saved_settings):
@@ -71,10 +86,12 @@ def render_threshold_controls(saved_settings):
     return preset, cpu, iops, throughput, network
 
 
+
 def render_business_rule_controls(saved_settings):
     st.sidebar.header("🏷️ Aturan Disposal Tambahan")
     off_days = st.sidebar.number_input("⏻ Ambang Days Powered Off", 1, 365, int(saved_settings.get("min_off_days", 30)), 1, help="VM dari file Power Off menjadi Kandidat Disposal jika Days Powered Off > ambang ini.", key="min_off_days_input")
     return off_days
+
 
 
 def render_filter_persistence_controls(current_settings, load_error):

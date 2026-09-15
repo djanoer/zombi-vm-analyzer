@@ -2,15 +2,19 @@
 # ZOMBIE VM ANALYZER v4.0 — MODULE: results_view.py
 # ============================================================================
 
+
 import io
+
 
 import pandas as pd
 import streamlit as st
+
 
 from status_tracking import (
     merge_status_into_df,
     save_status_updates,
 )
+
 
 
 def _ensure_columns(dataframe):
@@ -20,6 +24,7 @@ def _ensure_columns(dataframe):
     if "Catatan" not in result.columns:
         result["Catatan"] = ""
     return result
+
 
 
 def render_validation_section(
@@ -32,25 +37,39 @@ def render_validation_section(
     max_iops,
     max_throughput,
     max_network,
-    min_off_days
+    min_off_days,
+    total_in_table=None,  # <-- NEW: match dengan tabel
+    total_zombie=None,    # <-- NEW
+    total_disposal=None,  # <-- NEW
+    total_with_score=None # <-- NEW
 ):
     with st.expander("🔎 Validasi & Sanity Check Analisa", expanded=True):
         st.markdown("### 📊 Ringkasan Pemrosesan Data (Relevan dengan Tabel)")
 
-        # Hitung angka riil berdasarkan label pada tabel akhir
-        total_di_tabel = len(combined_candidates)
-        total_zombie = len(combined_candidates[combined_candidates["Label"] == "Kandidat Zombie"])
-        total_disposal = len(combined_candidates[combined_candidates["Label"] == "Kandidat Disposal"])
+
+        # FIX #2: Gunakan statistik yang di-pass jika tersedia, else hitung sendiri
+        if total_in_table is not None:
+            total_di_tabel = total_in_table
+            total_zombie_count = total_zombie
+            total_disposal_count = total_disposal
+        else:
+            total_di_tabel = len(combined_candidates)
+            total_zombie_count = len(combined_candidates[combined_candidates["Label"] == "Kandidat Zombie"])
+            total_disposal_count = len(combined_candidates[combined_candidates["Label"] == "Kandidat Disposal"])
+
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total VM Master (CSV Asli)", len(raw_dataframe))
         col2.metric("VM Lolos Filter (Di Tabel)", total_di_tabel)
-        col3.metric("🎯 Total Kandidat Zombie", total_zombie)
-        col4.metric("🗑️ Total Kandidat Disposal", total_disposal)
+        col3.metric("🎯 Total Kandidat Zombie", total_zombie_count)
+        col4.metric("🗑️ Total Kandidat Disposal", total_disposal_count)
+
 
         st.markdown("---")
 
+
         col_detail1, col_detail2, col_detail3 = st.columns(3)
+
 
         with col_detail1:
             st.markdown("**⚙️ Ambang Batas (Threshold)**")
@@ -60,10 +79,12 @@ def render_validation_section(
             st.write(f"- **Zombie Throughput:** <= {max_throughput}")
             st.write(f"- **Zombie Network:** <= {max_network} KBps")
 
+
         with col_detail2:
             st.markdown("**ℹ️ Filter & Penyusutan Data**")
             st.write(f"- Membuang **{len(raw_dataframe) - len(active_vms)} VM** yang di luar status (State) sidebar.")
             st.write(f"- Membuang **{len(active_vms) - total_di_tabel} VM** akibat filter target Uptime / Tag.")
+
 
         with col_detail3:
             st.markdown("**⚠️ Catatan Parsing Numerik**")
@@ -75,27 +96,19 @@ def render_validation_section(
                 st.success("✅ Seluruh angka berhasil dikonversi.")
 
 
-def render_results_section(combined_candidates, memory_column, updated_by):
+
+def render_results_section(combined_candidates, memory_column, updated_by, tanggal_proses=None):
     st.markdown("### 📋 Hasil Keputusan & Analisis Master VM")
+
 
     if combined_candidates.empty:
         st.info("Tidak ada VM yang memenuhi kriteria filter saat ini.")
         return
 
+
     display_dataframe = _ensure_columns(combined_candidates)
     display_dataframe = merge_status_into_df(display_dataframe)
 
-    show_only_candidates = st.checkbox(
-        "🎯 Sembunyikan VM Sehat (Hanya tampilkan Kandidat Zombie & Kandidat Disposal)",
-        value=False,
-        help="Centang ini jika Anda hanya ingin meninjau VM yang bermasalah. VM dengan Label 'Tidak Ditandai' (Skor 0) akan disembunyikan dari tabel."
-    )
-
-    if show_only_candidates:
-        display_dataframe = display_dataframe[display_dataframe["Label"] != "Tidak Ditandai"].copy()
-        if display_dataframe.empty:
-            st.info("Semua VM dalam scope filter Anda terdeteksi sehat/aktif. Tidak ada Kandidat yang bermasalah.")
-            return
 
     preview_columns = [
         "Name", "State", "Uptime / Days", "Days Powered Off", "Label",
@@ -108,10 +121,12 @@ def render_results_section(combined_candidates, memory_column, updated_by):
         column for column in preview_columns if column in display_dataframe.columns
     ]
 
+
     st.markdown(
         "Gunakan tabel di bawah ini untuk meninjau justifikasi setiap VM. "
         "Anda dapat mengubah status `Status HK` dan `Catatan` langsung pada tabel."
     )
+
 
     edited_dataframe = st.data_editor(
         display_dataframe[preview_columns],
@@ -141,6 +156,7 @@ def render_results_section(combined_candidates, memory_column, updated_by):
         key="master_vm_editor",
     )
 
+
     if st.button("💾 Simpan Perubahan Status HK", type="primary"):
         if not updated_by or updated_by.strip() == "":
             st.error("⚠️ Masukkan nama/identitas Anda pada sidebar sebelum menyimpan perubahan.")
@@ -164,13 +180,18 @@ def render_results_section(combined_candidates, memory_column, updated_by):
                 else:
                     st.info("Tidak ada perubahan baru yang direkam (status sama dengan sebelumnya).")
 
+
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+    # Tambah timestamp di filename jika tanggal_proses tersedia
+    file_name = f"Master_VM_Analysis_{tanggal_proses}.xlsx" if tanggal_proses else "Master_VM_Analysis.xlsx"
+
+
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         display_dataframe.to_excel(writer, index=False, sheet_name="Master VM Analysis")
     st.download_button(
         label="📥 Download Excel Master VM (Seluruh Kolom)",
         data=buffer.getvalue(),
-        file_name="Master_VM_Analysis.xlsx",
+        file_name=file_name,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         help="Download keseluruhan data (termasuk kolom yang tidak tampil di tabel preview).",
     )

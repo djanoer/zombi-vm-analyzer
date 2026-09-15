@@ -114,8 +114,11 @@ def merge_disposal_and_zombie(
         how="left",
         suffixes=("", " Power Off"),
     )
-    merged["Label"] = merged.get("Label Disposal")
-    merged["Label"] = merged["Label"].fillna("Tidak Ditandai")
+    if "Label Disposal" in merged.columns:
+        merged["Label"] = merged["Label Disposal"]
+        merged["Label"] = merged["Label"].fillna("Tidak Ditandai")
+    else:
+        merged["Label"] = "Tidak Ditandai"
     merged["Name"] = merged["Name"].fillna("")
     merged["UUID"] = merged["UUID"].fillna("")
     merged.drop(columns=["UUID Merge", "Merge Key"], inplace=True, errors="ignore")

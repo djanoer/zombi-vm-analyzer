@@ -132,8 +132,6 @@ def _read_robust(file, expected_columns):
         ~dataframe.columns.duplicated(),
     ]
 
-
-@st.cache_data
 def process_data(file):
     expected_columns = {
         "Name",
@@ -169,8 +167,6 @@ def process_data(file):
     validate_key_values(dataframe)
     return dataframe
 
-
-@st.cache_data
 def process_power_off_data(file):
     expected_columns = {
         "Name",
