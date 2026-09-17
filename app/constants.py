@@ -74,3 +74,26 @@ SCORE_WEIGHTS = {
 
 DEFAULT_MIN_CONSISTENT_PERIODS = 3
 DEFAULT_DISPOSAL_OFF_DAYS = 30
+
+# ==============================================================================
+# ALIAS & MAPPING KOLOM (POWER OFF & PIC)
+# ==============================================================================
+POWER_OFF_REQUIRED_COLUMNS = [
+    "Name",
+    "Power State",
+    "Days Powered Off",
+    "UUID",
+]
+
+POWER_OFF_COLUMN_ALIASES = {
+    "Power Off Days": "Days Powered Off",
+    "Days Power Off": "Days Powered Off",
+    "Days Powered Off": "Days Powered Off",
+}
+
+PIC_COLUMN_ALIASES = {
+    "nama vm": "Name", "virtual machine": "Name", "vm name": "Name", "name": "Name",
+    "uuid": "UUID", "vm uuid": "UUID", "instance uuid": "UUID",
+    "pic": "PIC Owner", "owner": "PIC Owner", "pemilik": "PIC Owner",
+    "pic owner": "PIC Owner", "application owner": "PIC Owner"
+}

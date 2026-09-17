@@ -335,3 +335,54 @@ def save_status_updates(original_df, edited_df, updated_by):
     st.toast(f"Data berhasil disimpan (HK: {len(hk_updates)}, PIC: {len(pic_updates)}).", icon="✅")
 
     return total_updates
+
+def bulk_save_pic_mapping(pic_dataframe, updated_by):
+    """Simpan data PIC dari hasil upload Excel/CSV ke database."""
+    if pic_dataframe is None or pic_dataframe.empty:
+        return 0
+
+    initialize_db()
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    current_time = datetime.now()
+    updates = []
+
+    for _, row in pic_dataframe.iterrows():
+        vm_name = str(row.get("Name", "")).strip()
+        vm_uuid = _get_clean_uuid(row)
+        pic_owner = str(row.get("PIC Owner", "")).strip()
+
+        # Skip baris yang kosong/tidak valid
+        if not vm_name and not vm_uuid:
+            continue
+        if not pic_owner or pic_owner.lower() == "nan":
+            continue
+
+        safe_uuid = vm_uuid if vm_uuid else ""
+        updates.append((safe_uuid, vm_name, pic_owner, "Bulk Upload", updated_by, current_time))
+
+    if not updates:
+        connection.close()
+        return 0
+
+    try:
+        cursor.executemany(
+            """
+            INSERT INTO vm_pic_mapping (uuid, name, pic_owner, source, mapped_by, mapped_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(uuid, name) DO UPDATE SET
+                pic_owner = excluded.pic_owner,
+                source = excluded.source,
+                mapped_by = excluded.mapped_by,
+                mapped_at = excluded.mapped_at
+            """,
+            updates,
+        )
+        connection.commit()
+    except sqlite3.Error as error:
+        connection.close()
+        st.toast(f"Gagal bulk insert PIC: {error}", icon="🚨")
+        return 0
+
+    connection.close()
+    return len(updates)

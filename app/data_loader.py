@@ -22,23 +22,12 @@ from constants import (
     NUMERIC_COLUMNS_BASE,
     UPTIME_UNKNOWN_TOKENS,
     INACTIVE_STATE_KEYWORDS,
+    POWER_OFF_REQUIRED_COLUMNS, # FIX REFACTOR: Diambil dari constants
+    POWER_OFF_COLUMN_ALIASES,   # FIX REFACTOR: Diambil dari constants
+    PIC_COLUMN_ALIASES          # FIX REFACTOR: Diambil dari constants
 )
 from csv_validation import validate_dataframe_structure, validate_key_values
 from parsers import parse_numeric_verbose
-
-
-POWER_OFF_REQUIRED_COLUMNS = [
-    "Name",
-    "Power State",
-    "Days Powered Off",
-    "UUID",
-]
-
-POWER_OFF_COLUMN_ALIASES = {
-    "Power Off Days": "Days Powered Off",
-    "Days Power Off": "Days Powered Off",
-    "Days Powered Off": "Days Powered Off",
-}
 
 
 def normalize_column_name(column):
@@ -357,3 +346,59 @@ def normalize_state_column(dataframe):
     ]
 
     return dataframe, states, active
+
+
+def process_pic_data(file):
+    file_name = file.name.lower()
+
+    # Deteksi ekstensi file (Excel vs CSV)
+    if file_name.endswith(('.xls', '.xlsx')):
+        file.seek(0)
+        dataframe = pd.read_excel(file)
+        dataframe.columns = [normalize_column_name(c) for c in dataframe.columns]
+    else:
+        # Gunakan parser CSV yang sudah ada
+        expected_columns = {"Name", "UUID", "PIC Owner", "PIC", "Owner"}
+        dataframe = _read_robust(file, expected_columns)
+
+    # Petakan nama kolom ke format standar dari konstanta
+    rename_map = {}
+    for col in dataframe.columns:
+        lower_col = col.lower()
+        if lower_col in PIC_COLUMN_ALIASES:
+            rename_map[col] = PIC_COLUMN_ALIASES[lower_col]
+
+    dataframe = dataframe.rename(columns=rename_map)
+
+    if "Name" not in dataframe.columns and "UUID" not in dataframe.columns:
+        raise ValueError("File harus memiliki setidaknya kolom Nama VM atau UUID.")
+    if "PIC Owner" not in dataframe.columns:
+        raise ValueError("File harus memiliki kolom PIC atau Owner.")
+
+    if "Name" not in dataframe.columns:
+        dataframe["Name"] = ""
+    if "UUID" not in dataframe.columns:
+        dataframe["UUID"] = ""
+
+    # Bersihkan NaN menjadi string kosong
+    dataframe["PIC Owner"] = dataframe["PIC Owner"].fillna("").astype(str).str.strip()
+
+    return dataframe[["Name", "UUID", "PIC Owner"]]
+
+
+def load_pic_uploads(uploaded_files):
+    dataframe_list = []
+    failed_files = []
+
+    for file in uploaded_files:
+        try:
+            dataframe_list.append(process_pic_data(file))
+        except Exception as error:
+            failed_files.append((file.name, str(error)))
+
+    if not dataframe_list:
+        return None, failed_files
+
+    combined = pd.concat(dataframe_list, ignore_index=True, sort=False)
+    combined = combined.drop_duplicates(subset=["Name", "UUID"], keep="last")
+    return combined, failed_files

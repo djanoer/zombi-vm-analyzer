@@ -29,10 +29,12 @@ import streamlit as st
 
 from analysis import run_zombie_analysis
 from constants import OPTIONAL_COLUMNS
+from status_tracking import bulk_save_pic_mapping
 from data_loader import (
     flag_data_quality,
     load_and_merge_uploads,
     load_power_off_uploads,
+    load_pic_uploads,
     normalize_state_column,
     parse_numeric_columns,
     resolve_memory_column,
@@ -103,6 +105,28 @@ if poweroff_files:
         st.success(
             f"CSV Power Off: {len(power_off_dataframe)} VM enrichment berhasil dimuat."
         )
+
+pic_files = st.file_uploader(
+    "👤 Upload Data PIC / Owner (Opsional)",
+    type=["csv", "xlsx", "xls"],
+    accept_multiple_files=True,
+    help="File inventory (Excel/CSV) berisi pemetaan Nama VM ke PIC. Cukup upload sesekali untuk update database.",
+)
+
+if pic_files:
+    pic_dataframe, failed_pic_files = load_pic_uploads(pic_files)
+    for filename, error in failed_pic_files:
+        st.error(f"❌ Gagal memproses file PIC **{filename}**: {error}")
+
+    if pic_dataframe is not None and not pic_dataframe.empty:
+        st.success(f"Data PIC: Ditemukan {len(pic_dataframe)} pemetaan VM valid.")
+
+        # Tombol terpisah khusus untuk UPSERT ke Database
+        if st.button("💾 Ekstrak & Simpan PIC ke Database", type="primary"):
+            current_user = st.session_state.get("updated_by_name", "System Bulk Upload")
+            saved_count = bulk_save_pic_mapping(pic_dataframe, current_user)
+            if saved_count > 0:
+                st.toast(f"Berhasil memperbarui {saved_count} kepemilikan VM ke database!", icon="✅")
 
 render_manual_book()
 saved_settings, filter_load_error = load_filter_settings()
