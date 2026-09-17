@@ -331,14 +331,23 @@ try:
     ].fillna("VM tidak terdeteksi oleh analisis.")
 
     combined_candidates["Label"] = combined_candidates["Label"].fillna("Tidak Ditandai")
+    from status_tracking import merge_status_into_df
+    combined_candidates = merge_status_into_df(combined_candidates)
+
     is_zombie_mask = combined_candidates["Is Kandidat Zombie"] == True
     is_not_disposal_mask = combined_candidates["Label"] == "Tidak Ditandai"
+    is_not_rejected = combined_candidates["Status HK"] != "Rejected"
 
+    # Terapkan label Kandidat Zombie HANYA untuk VM yang belum di-reject
     combined_candidates.loc[
-        is_zombie_mask & is_not_disposal_mask, "Label"
+        is_zombie_mask & is_not_disposal_mask & is_not_rejected, "Label"
     ] = "Kandidat Zombie"
-    # ==========================================================================
 
+    # Transparansi: VM Idle yang sudah di-reject tetap dilabeli khusus agar terlihat
+    combined_candidates.loc[
+        is_zombie_mask & is_not_disposal_mask & ~is_not_rejected, "Label"
+    ] = "Pengecualian (Rejected)"
+    # --------------------------------------------------------------------------
 
     # Hitung statistik untuk validasi (FIX #2: match dengan tabel)
     total_in_table = len(combined_candidates)

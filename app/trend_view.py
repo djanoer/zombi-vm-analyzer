@@ -15,6 +15,8 @@
 #    istilah fase adalah jargon internal development, tidak relevan untuk
 #    tampilan yang dipakai sehari-hari.
 # ==============================================================================
+import io
+import pandas as pd
 import streamlit as st
 
 from trend_analysis import compute_consistent_idle_vms, count_recorded_periods
@@ -43,18 +45,20 @@ def render_trend_section(min_periods, tanggal_proses, record_success, record_err
         return
 
     st.warning(f"⚠️ Ditemukan **{len(consistent_df)} VM** yang konsisten idle {min_periods}+ periode berturut-turut TANPA GAP — kandidat prioritas tinggi untuk Housekeeping.")
-    # Tambahkan visual metric di atas tabel
     st.metric(label="🚨 Total VM Kritis (Konsisten Idle)", value=f"{len(consistent_df)} VM")
 
-    # Ambil nilai maksimal periode untuk skala progress bar (minimal skala 12 bulan)
     max_streak = max(12, int(consistent_df["Jumlah Periode Idle Berturut-turut"].max()))
 
+    # ==========================================================================
+    # FIX: Tampilan UI (Sembunyikan UUID)
+    # ==========================================================================
+    display_columns = [col for col in consistent_df.columns if col != "UUID"]
+
     st.dataframe(
-        consistent_df,
+        consistent_df[display_columns],
         use_container_width=True,
         hide_index=True,
         column_config={
-            # Mengubah NumberColumn menjadi ProgressColumn yang elegan
             "Jumlah Periode Idle Berturut-turut": st.column_config.ProgressColumn(
                 "Periode Berturut-turut",
                 help="Visualisasi durasi idle tanpa henti",
@@ -63,6 +67,31 @@ def render_trend_section(min_periods, tanggal_proses, record_success, record_err
                 max_value=max_streak,
             ),
             "Periode Terakhir": st.column_config.TextColumn("Periode Terakhir", width="small"),
+            "PIC Owner": st.column_config.TextColumn("PIC Owner", width="medium"),
+            "Status HK": st.column_config.TextColumn("Status HK", width="medium"),
         },
     )
     st.caption("Definisi: idle di SEMUA periode berturut-turut sejak periode terbaru, tanpa 1 pun periode 'tidak idle' di antaranya (gap = reset hitungan ke 0).")
+
+    # ==========================================================================
+    # FIX: TOMBOL DOWNLOAD / EXPORT DATA TREN (Susun UUID di paling awal)
+    # ==========================================================================
+    # Pastikan UUID dan Nama VM berada di index 0 dan 1
+    export_columns = ["UUID", "Nama VM"]
+    export_columns += [col for col in consistent_df.columns if col not in export_columns]
+
+    export_df = consistent_df[export_columns]
+
+    buffer = io.BytesIO()
+    file_name = f"Tren_VM_Idle_Kritis_{tanggal_proses}.xlsx" if tanggal_proses else "Tren_VM_Idle_Kritis.xlsx"
+
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="Tren Konsisten Idle")
+
+    st.download_button(
+        label="📥 Download Data Tren (Excel)",
+        data=buffer.getvalue(),
+        file_name=file_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Ekspor daftar VM kritis ini ke format Excel untuk kebutuhan pelaporan.",
+    )

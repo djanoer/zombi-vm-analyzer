@@ -7,9 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from status_tracking import (
-    merge_status_into_df,
     save_status_updates,
-    VALID_STATUSES, # FIX TASK 4: Import konstanta status terbaru
+    VALID_STATUSES,
 )
 
 def _ensure_columns(dataframe):
@@ -96,7 +95,6 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
         return
 
     display_dataframe = _ensure_columns(combined_candidates)
-    display_dataframe = merge_status_into_df(display_dataframe)
 
     # FIX TASK 4: Tambahkan PIC Owner berdekatan dengan Status HK
     preview_columns = [
