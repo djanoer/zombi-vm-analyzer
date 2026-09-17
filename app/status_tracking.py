@@ -2,11 +2,11 @@
 # ZOMBIE VM ANALYZER v4.0 — MODULE: status_tracking.py
 # ==============================================================================
 """
-Module untuk tracking status housekeeping (HK) VM.
+Module untuk tracking status housekeeping (HK) VM dan PIC Owner.
 Fitur:
-- Save Status HK (Pending/Approved/Rejected) dan Catatan
-- Merge status dari database ke DataFrame
-- Audit trail (updated_by, updated_at)
+- Save Status HK, Catatan, dan PIC Owner
+- Merge status dan PIC dari database terpisah ke DataFrame (Vectorized Mapping)
+- Auto-migrate legacy schema dan handle UUID Fallbacks
 """
 
 import sqlite3
@@ -16,17 +16,14 @@ import streamlit as st
 
 from app_config import STATUS_DATABASE_PATH, ensure_data_directory
 
+# FIX TASK 1: Update list status ke best practice (ITSM/ITIL)
+VALID_STATUSES = ["Need Confirm", "Approved", "Rejected", "No Feedback"]
 
-VALID_STATUSES = ["Pending", "Approved", "Rejected"]
-
-# Kolom yang wajib ada pada skema BARU tabel vm_status.
 _EXPECTED_COLUMNS = {"uuid", "name", "status", "notes", "updated_by", "updated_at"}
-# Kolom skema LAMA (versi sebelum 17 Sep 2026) yang dimigrasi otomatis.
 _LEGACY_COLUMNS = {"vm_name", "uuid", "status", "catatan", "tanggal_update", "updated_by"}
 
 
 def get_db_connection():
-    """Get SQLite connection dengan row factory."""
     ensure_data_directory()
     connection = sqlite3.connect(
         STATUS_DATABASE_PATH,
@@ -37,6 +34,7 @@ def get_db_connection():
 
 
 def _create_new_schema(cursor):
+    # Tabel Housekeeping Status
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS vm_status (
@@ -51,21 +49,24 @@ def _create_new_schema(cursor):
         """
     )
 
+    # FIX TASK 1: Buat tabel baru untuk PIC Owner Mapping (Independent Lifecycle)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vm_pic_mapping (
+            uuid TEXT,
+            name TEXT,
+            pic_owner TEXT,
+            source TEXT,
+            mapped_by TEXT,
+            mapped_at TIMESTAMP,
+            PRIMARY KEY (uuid, name)
+        )
+        """
+    )
+
 
 def _migrate_legacy_schema_if_needed(cursor):
-    """
-    FIX Bug #1: deteksi tabel `vm_status` skema lama (vm_name/uuid/status/
-    catatan/tanggal_update/updated_by, PK (vm_name, uuid)) dan migrasikan
-    datanya ke skema baru (uuid/name/status/notes/updated_by/updated_at,
-    PK (uuid, name)) TANPA menghapus histori status HK yang sudah tersimpan.
-
-    Tanpa migrasi ini, INSERT ke skema baru akan selalu gagal dengan
-    sqlite3.OperationalError setiap kali ada database lama peninggalan versi
-    sebelumnya di server produksi.
-    """
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='vm_status'"
-    )
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vm_status'")
     table_exists = cursor.fetchone() is not None
 
     if not table_exists:
@@ -76,10 +77,10 @@ def _migrate_legacy_schema_if_needed(cursor):
     existing_columns = {row[1] for row in cursor.fetchall()}
 
     if _EXPECTED_COLUMNS.issubset(existing_columns):
-        # Skema sudah benar (baru), tidak ada yang perlu dimigrasi.
+        # Tabel HK aman. Pastikan tabel PIC juga di-create jika belum ada.
+        _create_new_schema(cursor)
         return
 
-    # Skema lama terdeteksi -> migrasi aman: rename, buat tabel baru, copy data, drop lama.
     cursor.execute("ALTER TABLE vm_status RENAME TO vm_status_legacy")
     _create_new_schema(cursor)
 
@@ -94,9 +95,6 @@ def _migrate_legacy_schema_if_needed(cursor):
             FROM vm_status_legacy
             """
         )
-    # Jika skema lama juga tidak dikenali (kasus tak terduga), tabel lama tetap
-    # disimpan sebagai vm_status_legacy (tidak dihapus) agar data tidak hilang,
-    # walau tidak ikut dimigrasi otomatis.
     else:
         cursor.execute("DROP TABLE IF EXISTS vm_status")
         cursor.execute("ALTER TABLE vm_status_legacy RENAME TO vm_status")
@@ -107,106 +105,106 @@ def _migrate_legacy_schema_if_needed(cursor):
 
 
 def initialize_db():
-    """Initialize database TANPA drop table (preserve historis)."""
     connection = get_db_connection()
     cursor = connection.cursor()
-
     _migrate_legacy_schema_if_needed(cursor)
-
     connection.commit()
     connection.close()
 
 
 def get_all_statuses():
-    """Get semua status dari database."""
     initialize_db()
     connection = get_db_connection()
-    query = "SELECT uuid, name, status, notes, updated_by, updated_at FROM vm_status"
-    dataframe = pd.read_sql_query(query, connection)
+    query_hk = "SELECT uuid, name, status, notes, updated_at FROM vm_status"
+    query_pic = "SELECT uuid, name, pic_owner, mapped_at FROM vm_pic_mapping"
+
+    df_hk = pd.read_sql_query(query_hk, connection)
+    df_pic = pd.read_sql_query(query_pic, connection)
     connection.close()
-    return dataframe
+    return df_hk, df_pic
 
 
 def _resolve_column(dataframe, candidates):
-    """Kembalikan nama kolom pertama dari `candidates` yang benar-benar ada
-    di `dataframe`, atau None jika tidak ada satu pun yang cocok.
-
-    FIX Bug #2: dipakai agar kode ini tidak lagi hardcode satu nama kolom
-    ("Name" saja / "Catatan" saja) yang ternyata berbeda dari nama kolom
-    yang benar-benar dipakai oleh tabel yang ditampilkan ke pengguna.
-    """
     for candidate in candidates:
         if candidate in dataframe.columns:
             return candidate
     return None
 
+
 def merge_status_into_df(dataframe):
     """
-    Merge status dari database ke DataFrame VM menggunakan Vectorized Mapping.
-    Teknik ini jauh lebih aman dari pd.merge untuk menghindari corrupt index.
+    Merge status HK dan PIC Owner menggunakan Vectorized Mapping secara paralel.
     """
-    status_df = get_all_statuses()
+    df_hk, df_pic = get_all_statuses()
 
-    # Jika DB kosong, kembalikan default untuk kedua versi nama kolom
-    if status_df.empty:
-        dataframe["Status HK"] = "Pending"
-        dataframe["Catatan HK"] = ""
-        dataframe["Catatan"] = ""
-        return dataframe
+    # Pre-fill defaults
+    dataframe["Status HK"] = "Need Confirm"
+    dataframe["Catatan HK"] = ""
+    dataframe["Catatan"] = ""
+    dataframe["PIC Owner"] = ""
 
-    # FIX 1: Urutkan DB descending agar selalu mengambil catatan PALING BARU
-    if "updated_at" in status_df.columns:
-        status_df["updated_at"] = pd.to_datetime(status_df["updated_at"], errors="coerce")
-        status_df = status_df.sort_values(by="updated_at", ascending=False, na_position="last")
-
-    # FIX 2: Standarisasi Key (hindari case-sensitive dan spasi tersembunyi)
-    status_df["UUID_Clean"] = status_df["uuid"].fillna("").astype(str).str.strip()
-    status_df["Name_Clean"] = status_df["name"].fillna("").astype(str).str.strip().str.lower()
-
+    # Standarisasi kunci master dari dataframe tabel
     dataframe["UUID_Clean"] = dataframe["UUID"].fillna("").astype(str).str.strip() if "UUID" in dataframe.columns else ""
     dataframe["Name_Clean"] = dataframe["Name"].fillna("").astype(str).str.strip().str.lower()
 
-    # Buat dictionary index untuk VLOOKUP ala Pandas
-    valid_uuid_db = status_df[status_df["UUID_Clean"] != ""].drop_duplicates(subset=["UUID_Clean"], keep="first").set_index("UUID_Clean")
-    valid_name_db = status_df.drop_duplicates(subset=["Name_Clean"], keep="first").set_index("Name_Clean")
+    # =========================================================================
+    # PROCESSING 1: HOUSEKEEPING STATUS (HK)
+    # =========================================================================
+    if not df_hk.empty:
+        if "updated_at" in df_hk.columns:
+            df_hk["updated_at"] = pd.to_datetime(df_hk["updated_at"], errors="coerce")
+            df_hk = df_hk.sort_values(by="updated_at", ascending=False, na_position="last")
 
-    # Eksekusi Mapping (Mencari status dan catatan berdasarkan UUID)
-    status_by_uuid = dataframe["UUID_Clean"].map(valid_uuid_db["status"])
-    notes_by_uuid = dataframe["UUID_Clean"].map(valid_uuid_db["notes"])
+        df_hk["UUID_Clean"] = df_hk["uuid"].fillna("").astype(str).str.strip()
+        df_hk["Name_Clean"] = df_hk["name"].fillna("").astype(str).str.strip().str.lower()
 
-    # Eksekusi Mapping (Mencari status dan catatan berdasarkan Nama VM)
-    status_by_name = dataframe["Name_Clean"].map(valid_name_db["status"])
-    notes_by_name = dataframe["Name_Clean"].map(valid_name_db["notes"])
+        valid_uuid_hk = df_hk[df_hk["UUID_Clean"] != ""].drop_duplicates(subset=["UUID_Clean"], keep="first").set_index("UUID_Clean")
+        valid_name_hk = df_hk.drop_duplicates(subset=["Name_Clean"], keep="first").set_index("Name_Clean")
 
-    # FIX 3: Prioritaskan UUID. Jika UUID gagal/kosong, otomatis pakai hasil Nama VM.
-    final_status = status_by_uuid.combine_first(status_by_name).fillna("Pending")
-    final_notes = notes_by_uuid.combine_first(notes_by_name).fillna("")
+        # Map HK by UUID, fallback by Name
+        final_status = dataframe["UUID_Clean"].map(valid_uuid_hk["status"]).combine_first(
+                       dataframe["Name_Clean"].map(valid_name_hk["status"])
+        ).fillna("Need Confirm")
 
-    # Validasi jika status di luar ketentuan
-    invalid_mask = ~final_status.isin(VALID_STATUSES)
-    final_status.loc[invalid_mask] = "Pending"
+        final_notes = dataframe["UUID_Clean"].map(valid_uuid_hk["notes"]).combine_first(
+                      dataframe["Name_Clean"].map(valid_name_hk["notes"])
+        ).fillna("")
 
-    # FIX 4: Tulis ke dua nama kolom sekaligus untuk menjamin UI Streamlit membacanya
-    dataframe["Status HK"] = final_status
-    dataframe["Catatan HK"] = final_notes
-    dataframe["Catatan"] = final_notes
+        # Validasi
+        invalid_mask = ~final_status.isin(VALID_STATUSES)
+        final_status.loc[invalid_mask] = "Need Confirm"
 
-    # Bersihkan kolom temporary agar tidak muncul di tabel
+        dataframe["Status HK"] = final_status
+        dataframe["Catatan HK"] = final_notes
+        dataframe["Catatan"] = final_notes
+
+    # =========================================================================
+    # PROCESSING 2: PIC OWNER MAPPING
+    # =========================================================================
+    if not df_pic.empty:
+        if "mapped_at" in df_pic.columns:
+            df_pic["mapped_at"] = pd.to_datetime(df_pic["mapped_at"], errors="coerce")
+            df_pic = df_pic.sort_values(by="mapped_at", ascending=False, na_position="last")
+
+        df_pic["UUID_Clean"] = df_pic["uuid"].fillna("").astype(str).str.strip()
+        df_pic["Name_Clean"] = df_pic["name"].fillna("").astype(str).str.strip().str.lower()
+
+        valid_uuid_pic = df_pic[df_pic["UUID_Clean"] != ""].drop_duplicates(subset=["UUID_Clean"], keep="first").set_index("UUID_Clean")
+        valid_name_pic = df_pic.drop_duplicates(subset=["Name_Clean"], keep="first").set_index("Name_Clean")
+
+        # Map PIC by UUID, fallback by Name
+        final_pic = dataframe["UUID_Clean"].map(valid_uuid_pic["pic_owner"]).combine_first(
+                    dataframe["Name_Clean"].map(valid_name_pic["pic_owner"])
+        ).fillna("")
+
+        dataframe["PIC Owner"] = final_pic
+
+    # Cleanup temporary
     dataframe = dataframe.drop(columns=["UUID_Clean", "Name_Clean"])
-
     return dataframe
 
+
 def _get_clean_uuid(row):
-    """
-    Ekstrak UUID yang valid dari row.
-
-    FIX Bug B: NaN pada kolom UUID sebelumnya dikonversi str(NaN) -> "nan"
-    (string tidak kosong), sehingga salah dianggap UUID valid dan gagal
-    fallback ke VM Name. Fungsi ini memastikan NaN/None/kosong -> None.
-
-    Returns:
-        str UUID (stripped) jika valid, None jika kosong/NaN
-    """
     raw_uuid = row.get("UUID", None)
     if raw_uuid is None or pd.isna(raw_uuid):
         return None
@@ -215,122 +213,125 @@ def _get_clean_uuid(row):
 
 
 def save_status_updates(original_df, edited_df, updated_by):
+    """
+    Save perubahan ke tabel HK dan tabel PIC secara independen.
+    """
     initialize_db()
     connection = get_db_connection()
     cursor = connection.cursor()
 
-    # Validasi input
     if original_df.empty or edited_df.empty:
         connection.close()
         return 0
 
     name_col_original = _resolve_column(original_df, ["Name", "Nama VM"])
     name_col_edited = _resolve_column(edited_df, ["Name", "Nama VM"])
-    if name_col_original is None or name_col_edited is None:
-        st.error(
-            "❌ Kolom nama VM ('Name' atau 'Nama VM') tidak ditemukan di DataFrame."
-        )
-        connection.close()
-        return 0
-
     notes_col_original = _resolve_column(original_df, ["Catatan HK", "Catatan"])
     notes_col_edited = _resolve_column(edited_df, ["Catatan HK", "Catatan"])
-    if notes_col_original is None or notes_col_edited is None:
-        st.error(
-            "❌ Kolom catatan ('Catatan HK' atau 'Catatan') tidak ditemukan di DataFrame."
-        )
+
+    # Kolom PIC Owner
+    pic_col_orig = _resolve_column(original_df, ["PIC Owner"])
+    pic_col_edit = _resolve_column(edited_df, ["PIC Owner"])
+
+    if not all([name_col_original, name_col_edited, notes_col_original, notes_col_edited]):
+        st.error("❌ Terjadi kesalahan: Kolom krusial (Nama VM/Catatan) hilang dari tabel.")
         connection.close()
         return 0
 
-    has_uuid = "UUID" in original_df.columns and "UUID" in edited_df.columns
-
-    changed_rows = []
+    hk_updates = []
+    pic_updates = []
+    current_time = datetime.now()
 
     for _, row in edited_df.iterrows():
         if name_col_edited not in row or pd.isna(row[name_col_edited]):
             continue
 
         vm_name = str(row[name_col_edited]).strip()
-
-        # Coba ambil UUID langsung dari edited_df (jika UI menampilkannya)
         vm_uuid = _get_clean_uuid(row) if "UUID" in edited_df.columns else None
 
-        # Cari baris aslinya di original_df
         if vm_uuid and "UUID" in original_df.columns:
             matching_rows = original_df[original_df["UUID"] == vm_uuid]
-            match_type = "UUID"
         else:
             matching_rows = original_df[original_df[name_col_original] == vm_name]
-            match_type = "VM Name"
 
         if matching_rows.empty:
-            st.warning(f"⚠️ VM '{vm_name}' tidak ditemukan di data asli.")
             continue
 
         orig_row = matching_rows.iloc[0]
-
-        # FIX UTAMA: Jika UI menghilangkan kolom UUID, ambil paksa dari original_df
         if not vm_uuid and "UUID" in original_df.columns:
             vm_uuid = _get_clean_uuid(orig_row)
 
-        # Sanitasi dan komparasi (dari perbaikan kita di chat sebelumnya)
-        orig_status = str(orig_row["Status HK"]).strip()
-        edit_status = str(row["Status HK"]).strip()
+        safe_uuid = vm_uuid if vm_uuid else ""
 
+        # -------------------------------------------------------------
+        # CEK DELTA: HK STATUS & NOTES
+        # -------------------------------------------------------------
+        orig_status = str(orig_row.get("Status HK", "Need Confirm")).strip()
+        edit_status = str(row.get("Status HK", "Need Confirm")).strip()
         orig_note = "" if pd.isna(orig_row[notes_col_original]) else str(orig_row[notes_col_original]).strip()
         edit_note = "" if pd.isna(row[notes_col_edited]) else str(row[notes_col_edited]).strip()
 
         if (edit_status != orig_status) or (edit_note != orig_note):
-            changed_rows.append(
-                {
-                    "uuid": vm_uuid if vm_uuid else "",  # Fallback murni jika memang tidak punya UUID
-                    "name": vm_name,
-                    "status": edit_status,
-                    "notes": edit_note,
-                    "match_type": match_type,
-                }
-            )
+            hk_updates.append((safe_uuid, vm_name, edit_status, edit_note, updated_by, current_time))
 
-    if not changed_rows:
+        # -------------------------------------------------------------
+        # CEK DELTA: PIC OWNER (Hanya dieksekusi jika kolom PIC ada di layar)
+        # -------------------------------------------------------------
+        if pic_col_orig and pic_col_edit:
+            orig_pic = "" if pd.isna(orig_row[pic_col_orig]) else str(orig_row[pic_col_orig]).strip()
+            edit_pic = "" if pd.isna(row[pic_col_edit]) else str(row[pic_col_edit]).strip()
+
+            if edit_pic != orig_pic:
+                # Disimpan dengan flag "Manual UI" untuk audit
+                pic_updates.append((safe_uuid, vm_name, edit_pic, "Manual UI", updated_by, current_time))
+
+    # =========================================================================
+    # DATABASE BATCH EXECUTION
+    # =========================================================================
+    if not hk_updates and not pic_updates:
         connection.close()
         return 0
 
-    current_time = datetime.now()
-    updates = [
-        (
-            item["uuid"] if item["uuid"] else "",  # Simpan "" bukan None ke DB (konsisten dgn PRIMARY KEY)
-            item["name"],
-            item["status"],
-            item["notes"],
-            updated_by,
-            current_time,
-        )
-        for item in changed_rows
-    ]
-
     try:
-        cursor.executemany(
-            """
-            INSERT INTO vm_status (uuid, name, status, notes, updated_by, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(uuid, name) DO UPDATE SET
-                status = excluded.status,
-                notes = excluded.notes,
-                updated_by = excluded.updated_by,
-                updated_at = excluded.updated_at
-            """,
-            updates,
-        )
+        # Eksekusi Update HK
+        if hk_updates:
+            cursor.executemany(
+                """
+                INSERT INTO vm_status (uuid, name, status, notes, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(uuid, name) DO UPDATE SET
+                    status = excluded.status,
+                    notes = excluded.notes,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                hk_updates,
+            )
+
+        # Eksekusi Update PIC
+        if pic_updates:
+            cursor.executemany(
+                """
+                INSERT INTO vm_pic_mapping (uuid, name, pic_owner, source, mapped_by, mapped_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(uuid, name) DO UPDATE SET
+                    pic_owner = excluded.pic_owner,
+                    source = excluded.source,
+                    mapped_by = excluded.mapped_by,
+                    mapped_at = excluded.mapped_at
+                """,
+                pic_updates,
+            )
+
         connection.commit()
     except sqlite3.Error as error:
         connection.close()
-        # FIX 1: Gunakan toast alih-alih st.error yang permanen
         st.toast(f"Gagal menyimpan ke database: {error}", icon="🚨")
         return 0
 
     connection.close()
 
-    # FIX 2: Gunakan toast alih-alih st.success yang permanen
-    st.toast(f"Data berhasil disimpan ({len(updates)} VM).", icon="✅")
+    total_updates = len(hk_updates) + len(pic_updates)
+    st.toast(f"Data berhasil disimpan (HK: {len(hk_updates)}, PIC: {len(pic_updates)}).", icon="✅")
 
-    return len(updates)
+    return total_updates
