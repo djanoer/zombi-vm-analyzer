@@ -1,7 +1,7 @@
 # ==============================================================================
 #  🧟 ZOMBIE VM ANALYZER v4.0 — MODULE: manual_book.py
 # ------------------------------------------------------------------------------
-#  UPDATE (16 Sep 2026):
+#  UPDATE (18 Sep 2026):
 #  - Gunakan st.expander() untuk collapsible section
 #  - Tambah section Threshold Preset (4 varian)
 #  - Tambah section Cara Menggunakan Number Input
@@ -9,6 +9,9 @@
 #  - Tambah section Sanity Check Validation
 #  - Tambah section Troubleshooting Hasil
 #  - Hapus estimasi jumlah VM yang dinamis
+#  - Tambah panduan Data PIC / Owner
+#  - Tambah section Manajemen Status Housekeeping (HK) & Pengecualian Rejected
+#  - Update alur Langkah-langkah Analisis (Save DB & Ekspor Tren)
 # ==============================================================================
 import streamlit as st
 
@@ -16,9 +19,11 @@ import streamlit as st
 MANUAL_BOOK_MARKDOWN = """
 ### 🎯 Tentang Aplikasi Ini
 
-**Zombie VM Analyzer** adalah Decision-Support System (DSS) untuk membantu pengelolaan siklus hidup Virtual Machine (VM).
+**Zombie VM Analyzer** adalah Decision-Support System (DSS) yang dirancang untuk membantu proses pengelolaan siklus hidup Virtual Machine (VM) secara lebih objektif dan terukur.
 
-**Goal:** Menyediakan evidence (bukti objektif) berupa skor idle dan justifikasi terstruktur agar tim operasional dapat mengajukan daftar VM yang layak untuk di-decommission atau dihapus.
+Analisis dilakukan berdasarkan data utilisasi aktual VM (seperti pemakaian CPU, memori, storage, dan network) sehingga hasil skoring idle dan justifikasi yang dihasilkan bersifat kuantitatif, dapat diverifikasi, dan tidak bergantung pada asumsi atau opini subjektif.
+
+**Goal:** Menyediakan evidence (bukti objektif) berupa skor idle dan justifikasi terstruktur, yang dihitung dari data utilisasi VM, sebagai dasar pendukung (supporting evidence) untuk inisiasi proses housekeeping (HK), decommission, atau penghapusan VM yang sudah tidak digunakan (zombie VM).
 
 ---
 
@@ -47,8 +52,13 @@ Berisi daftar VM yang mati beserta durasi Days Powered Off.
 **Kolom Wajib:**
 - `Name` — Nama VM
 - `Power State` — Status (harus "Powered Off")
-- `Power Off Days` — Durasi mati (hari)
+- `Days Powered Off` / `Power Off Days` — Durasi mati (hari)
 - `UUID` — UUID VM (untuk join dengan CSV Master)
+
+#### 3. Data PIC / Owner (Opsional)
+Berisi file Excel/CSV pemetaan (mapping) identitas VM dengan pihak yang bertanggung jawab. Sistem mendeteksi kolom secara pintar.
+- **Identitas (Pilih Salah Satu):** `Name`, `Nama VM`, `UUID`, dll.
+- **Pemilik (Wajib):** `PIC`, `Owner`, `PIC Owner`, dll.
 
 ---
 
@@ -155,6 +165,16 @@ Sistem ini memisahkan analisis VM menjadi dua kategori:
 - VM Aktif idle → Butuh validasi metrik (CPU, IOPS, dll)
 - VM Mati lama → Hanya butuh validasi durasi (Days Powered Off)
 - Kriteria berbeda, tujuan berbeda, threshold berbeda
+
+---
+
+### 📋 Manajemen Status Housekeeping (HK) & PIC
+
+Aplikasi ini melacak pembaruan PIC dan Status HK (Housekeeping) secara persisten di dalam *database* lokal, sehingga data tidak hilang meskipun halaman di-refresh.
+
+1. **Update Langsung di Tabel:** Anda dapat mengklik tabel utama untuk mengubah nama `PIC Owner`, `Status HK`, dan `Catatan`. Klik tombol **"Simpan Perubahan"** untuk mengunci data ke database.
+2. **Pengecualian Status "Rejected":** Jika PIC memberikan konfirmasi bahwa VM tidak boleh dimatikan (masih terpakai/critical), ubah statusnya menjadi **Rejected**. Sistem akan **otomatis mengeluarkan** VM ini dari hitungan *"Kandidat Zombie"* di bulan/periode berikutnya untuk mencegah notifikasi berulang (*alert fatigue*).
+3. **Bagaimana dengan Status "Approved"?:** VM yang disetujui (Approved) untuk dimatikan **tetap akan muncul** di dashboard sebagai "Kandidat Zombie" sebagai *reminder* untuk tim eksekutor. VM ini baru akan hilang setelah benar-benar dimatikan dan terdeteksi di file **CSV Power Off**.
 
 ---
 
@@ -270,12 +290,12 @@ Gunakan fitur "Trend Idle" untuk cek konsistensi:
 
 ### 📋 Langkah-Langkah Analisis
 
-1. **Upload CSV Metrik VM** — Klik "Browse files" atau drag & drop CSV
-2. **Set Filter dan Threshold** — Pilih status VM, preset threshold, filter Tag
-3. **Jalankan Analisis** — Klik tombol "🔍 Analisa VM Zombie"
-4. **Review Hasil** — Lihat list VM kandidat zombie, review Skor Idle
-5. **Export Laporan** — Klik "💾 Export ke Excel"
-6. **Tindak Lanjut** — Kirim nodin ke owner, monitor approval, update Status HK
+1. **Upload Data** — Upload CSV Metrik (wajib). Opsional: Upload CSV Power Off dan Data PIC/Owner. (Khusus file PIC, tekan tombol "Ekstrak & Simpan PIC" agar tersimpan permanen ke database referensi).
+2. **Set Filter dan Threshold** — Pilih status VM, preset threshold, dan filter Tag di *Sidebar* kiri.
+3. **Jalankan Analisis** — Sistem otomatis memproses data (atau klik tombol "🔍 Analisa VM Zombie" jika ada).
+4. **Review & Simpan HK** — Tinjau hasil analisis di tabel utama. Jika Anda sudah berkoordinasi dengan PIC, edit kolom `PIC Owner` / `Status HK` / `Catatan` langsung di tabel, lalu klik tombol **💾 Simpan Perubahan**.
+5. **Export Master VM** — Klik tombol "📥 Download Excel Master VM" untuk menarik seluruh hasil analisa bulan ini.
+6. **Analisis Tren** — Gulir ke bawah untuk memantau VM mana saja yang konsisten "Idle" selama berbulan-bulan. Anda juga bisa mengekspornya melalui tombol **📥 Download Data Tren (Excel)**.
 
 ---
 
@@ -286,6 +306,9 @@ Gunakan fitur "Trend Idle" untuk cek konsistensi:
 
 **Q: Apakah semua VM harus dianalisis?**
 **A:** Tidak. Exclude VM critical (C_01_Critical), DR, atau compliance requirement.
+
+**Q: Kenapa status HK / PIC kosong di tabel Tren?**
+**A:** Itu adalah rekaman (snapshot) lama sebelum fitur PIC/HK dirilis. Begitu Anda melakukan siklus analisis hari ini, data terbaru akan otomatis menambal kekosongan tersebut.
 
 **Q: Bagaimana jika hasil analisis berbeda dengan ekspektasi?**
 **A:** Lakukan sanity check (lihat section di atas). Adjust threshold atau filter sesuai kebutuhan.
@@ -300,10 +323,10 @@ Gunakan fitur "Trend Idle" untuk cek konsistensi:
 
 ### 📞 Kontak & Support
 
-Jika ada pertanyaan atau issue, hubungi tim IT Operations atau Cloud Operations.
+Jika ada pertanyaan atau issue, hubungi tim Surrounding Compute Recovery Operation (SCR).
 
 **Versi:** v4.0
-**Last Update:** 16 Sep 2026
+**Last Update:** 18 Sep 2026
 """
 
 

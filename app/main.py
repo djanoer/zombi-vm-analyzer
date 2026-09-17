@@ -68,8 +68,7 @@ st.set_page_config(
 )
 st.title("🧟 Zombie VM Analyzer v4.0")
 st.markdown(
-    "Decision-Support System: Tabel utama **hanya menampilkan VM yang sesuai dengan filter** "
-    "(Status, Uptime, Tag). Label Disposal dan Zombie menjadi enrichment analisis."
+    "**Decision-Support System:** Menganalisis utilisasi VM secara otomatis untuk menemukan, mengklasifikasikan, dan menjustifikasi zombie VM — objektif, terukur, dan terdokumentasi sebagai dasar decommission."
 )
 
 
@@ -383,9 +382,10 @@ try:
         total_with_score
     )
 
-
-    # Hanya ambil VM yang labelnya BUKAN "Tidak Ditandai"
-    kandidat_only = combined_candidates[combined_candidates["Label"] != "Tidak Ditandai"].copy()
+    # Hanya ambil VM yang labelnya BUKAN "Tidak Ditandai" DAN BUKAN "Pengecualian (Rejected)"
+    kandidat_only = combined_candidates[
+        ~combined_candidates["Label"].isin(["Tidak Ditandai", "Pengecualian (Rejected)"])
+    ].copy()
 
     # Masukkan variabel kandidat_only, BUKAN combined_candidates
     render_results_section(kandidat_only, memory_column, updated_by, tanggal_proses)
