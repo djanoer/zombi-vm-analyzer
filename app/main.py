@@ -1,6 +1,22 @@
 # ==============================================================================
 # ZOMBIE VM ANALYZER v4.0 — ENTRY POINT: main.py
-# ============================================================================
+# ------------------------------------------------------------------------------
+# FIX (review 17 Sep 2026): kolom hasil analisis Zombie yang benar-benar
+# diproduksi oleh analysis.py (CANDIDATE_COLUMN) dan dibaca oleh
+# trend_analysis.py bernama "Is Kandidat Disposal" -- BUKAN "Is Kandidat
+# Zombie". Referensi ke "Is Kandidat Zombie" di bawah menyebabkan kolom
+# tersebut selalu ter-drop secara diam-diam saat membangun analysis_result
+# (list comprehension "if column in analyzed_vms.columns" membuang kolom yang
+# tidak ditemukan tanpa error), lalu combined_candidates["Is Kandidat Zombie"]
+# meledak dengan KeyError beberapa baris kemudian -- meruntuhkan seluruh
+# halaman (termasuk tabel & tombol Simpan) sebelum sempat dirender, dan
+# terutama terjadi lagi tepat setelah st.rerun() pasca-simpan (lihat
+# results_view.py), sehingga pesan sukses simpan tidak pernah terlihat dan
+# pengguna mengira perubahan tidak tersimpan. Dikonfirmasi lewat grep
+# terhadap CANDIDATE_COLUMN di analysis.py dan row.get(...) di
+# trend_analysis.py -- keduanya konsisten memakai "Is Kandidat Disposal".
+# Kedua referensi di bawah dikembalikan ke nama kolom yang benar tersebut.
+# ==============================================================================
 
 
 import re
@@ -149,7 +165,7 @@ try:
         active_vms,
         saved_settings,
     )
-    tag_mapping, selected_tags = render_tag_filter(active_vms)
+    tag_mapping, selected_tags = render_tag_filter(active_vms, saved_settings)
     preset, max_cpu, max_iops, max_throughput, max_network = (
         render_threshold_controls(saved_settings)
     )
@@ -168,6 +184,7 @@ try:
         "min_uptime": int(min_uptime),
         "max_uptime": int(max_uptime),
         "min_off_days": int(min_off_days),
+        "tag_filter_input": selected_tags,
     }
     render_filter_persistence_controls(current_settings, filter_load_error)
 
@@ -247,6 +264,11 @@ try:
     # ==========================================================================
     # MERGE HASIL ANALISIS ZOMBIE KE COMBINED_CANDIDATES
     # ==========================================================================
+    # FIX: "Is Kandidat Disposal" adalah nama kolom yang BENAR-BENAR diproduksi
+    # oleh analysis.py (CANDIDATE_COLUMN) dan dibaca oleh trend_analysis.py.
+    # Sebelumnya baris ini memakai "Is Kandidat Zombie" (tidak pernah ada di
+    # analyzed_vms), yang membuat kolom ini ter-drop diam-diam di bawah,
+    # lalu KeyError beberapa baris kemudian saat kolom itu diakses langsung.
     analysis_columns = [
         "Name",
         "UUID",
@@ -287,6 +309,7 @@ try:
     combined_candidates["Label"] = combined_candidates["Label"].fillna("Tidak Ditandai")
     is_zombie_mask = combined_candidates["Is Kandidat Zombie"] == True
     is_not_disposal_mask = combined_candidates["Label"] == "Tidak Ditandai"
+
     combined_candidates.loc[
         is_zombie_mask & is_not_disposal_mask, "Label"
     ] = "Kandidat Zombie"

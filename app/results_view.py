@@ -159,29 +159,26 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
         key="master_vm_editor",
     )
 
-
-    if st.button("💾 Simpan Perubahan Status HK", type="primary"):
+    if st.button("💾 Simpan Perubahan", type="primary"):
         if not updated_by or updated_by.strip() == "":
-            st.error("⚠️ Masukkan nama/identitas Anda pada sidebar sebelum menyimpan perubahan.")
+            # FIX 1: Ubah st.error statis menjadi st.toast
+            st.toast("⚠️ Masukkan nama/identitas Anda pada sidebar sebelum menyimpan perubahan.", icon="⚠️")
         else:
             changed_rows = edited_dataframe[
                 (edited_dataframe["Status HK"] != display_dataframe["Status HK"])
                 | (edited_dataframe["Catatan"] != display_dataframe["Catatan"])
             ]
             if changed_rows.empty:
-                st.info("Tidak ada perubahan status untuk disimpan.")
+                # FIX 2: Ubah st.info statis menjadi st.toast
+                st.toast("Tidak ada perubahan status untuk disimpan.", icon="ℹ️")
             else:
-                success_count = save_status_updates(
+                # FIX 3: Cukup panggil fungsinya. Hapus st.toast sukses di sini
+                # karena fungsi save_status_updates() sudah memunculkan toast-nya sendiri.
+                save_status_updates(
                     display_dataframe,
                     edited_dataframe,
                     updated_by,
                 )
-                if success_count > 0:
-                    # Menggunakan toast agar tabel tidak tergeser oleh blok pesan hijau
-                    st.toast(f"Berhasil menyimpan pembaruan status untuk {success_count} VM.", icon="✅")
-                else:
-                    st.toast("Tidak ada perubahan baru yang direkam.", icon="ℹ️")
-
 
     buffer = io.BytesIO()
     # Tambah timestamp di filename jika tanggal_proses tersedia
