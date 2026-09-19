@@ -17,7 +17,7 @@ def _ensure_columns(dataframe):
         result["Status HK"] = "Need Confirm" # Sesuaikan default baru
     if "Catatan" not in result.columns:
         result["Catatan"] = ""
-    # FIX TASK 4: Pastikan kolom PIC Owner selalu ada
+    # Pastikan kolom PIC Owner selalu ada
     if "PIC Owner" not in result.columns:
         result["PIC Owner"] = ""
     return result
@@ -39,7 +39,10 @@ def render_validation_section(
     total_in_table=None,
     total_zombie=None,
     total_disposal=None,
-    total_with_score=None
+    est_vcpu=0,
+    est_mem_gb=0,
+    est_storage_gb=0,
+    est_storage_tb=0,
 ):
     with st.expander("🔎 Validasi & Sanity Check Analisa", expanded=True):
         st.markdown("### 📊 Ringkasan Pemrosesan Data (Relevan dengan Tabel)")
@@ -54,10 +57,22 @@ def render_validation_section(
             total_disposal_count = len(combined_candidates[combined_candidates["Label"] == "Kandidat Disposal"])
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total VM Master (CSV Asli)", len(raw_dataframe))
-        col2.metric("VM Lolos Filter (Di Tabel)", total_di_tabel)
+        col1.metric("Total VM Master", len(raw_dataframe))
+        col2.metric("VM Lolos Filter", total_di_tabel)
         col3.metric("🎯 Total Kandidat Zombie", total_zombie_count)
         col4.metric("🗑️ Total Kandidat Disposal", total_disposal_count)
+
+        st.markdown("---")
+        st.markdown("### 💎 Potensi Penghematan Resource (Reclaimable)")
+        r_col1, r_col2, r_col3 = st.columns(3)
+        r_col1.metric("Total vCPU", f"{int(est_vcpu):,} Core")
+        r_col2.metric("Total Memory", f"{int(est_mem_gb):,} GB")
+
+        # Jika CSV memiliki kolom TB dan nilainya > 0, prioritaskan tampilan TB
+        if est_storage_tb > 0:
+            r_col3.metric("Total Storage", f"{est_storage_tb:,.2f} TB")
+        else:
+            r_col3.metric("Total Storage", f"{int(est_storage_gb):,} GB")
 
         st.markdown("---")
 
@@ -96,9 +111,18 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
 
     display_dataframe = _ensure_columns(combined_candidates)
 
-    # FIX TASK 4: Tambahkan PIC Owner berdekatan dengan Status HK
+    # ==========================================================================
+    # TAMBAHKAN NOMOR URUT DINAMIS
+    # ==========================================================================
+    # Hapus jika kebetulan sudah ada agar tidak bentrok, lalu insert di index 0
+    if "No." in display_dataframe.columns:
+        display_dataframe = display_dataframe.drop(columns=["No."])
+    display_dataframe.insert(0, "No.", range(1, len(display_dataframe) + 1))
+    # ==========================================================================
+
+    # Tambahkan "No." di urutan pertama preview_columns
     preview_columns = [
-        "Name", "Kritikalitas", "State", "Uptime / Days", "Days Powered Off", "Label",
+        "No.", "Name", "Kritikalitas", "State", "Uptime / Days", "Days Powered Off", "Label",
         "Skor Idle (0-100)", "CPU Percentile 95%", "IOPS Percentile 95%",
         "Throughput Percentile 95%", memory_column,
         "Network I/O | Usage Rate (KBps) - 95th Percentile",
@@ -117,6 +141,11 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
         display_dataframe[preview_columns],
         hide_index=True,
         column_config={
+            # Konfigurasi agar kolom No. tampil rapi
+            "No.": st.column_config.NumberColumn(
+                "No.",
+                width="small",
+            ),
             "PIC Owner": st.column_config.TextColumn(
                 "PIC Owner",
                 help="Nama, Tim, atau Email pemilik VM",
@@ -140,7 +169,7 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
             ),
         },
         use_container_width=True,
-        # FIX TASK 4: Izinkan PIC Owner untuk diedit
+        # Kolom 'No.' akan otomatis masuk ke disabled karena tidak ada di dalam list pengecualian ini
         disabled=[
             column for column in preview_columns if column not in ["PIC Owner", "Status HK", "Catatan"]
         ],
@@ -151,7 +180,7 @@ def render_results_section(combined_candidates, memory_column, updated_by, tangg
         if not updated_by or updated_by.strip() == "":
             st.toast("⚠️ Masukkan nama/identitas Anda pada sidebar sebelum menyimpan perubahan.", icon="⚠️")
         else:
-            # FIX TASK 4: Deteksi juga jika ada perubahan pada kolom PIC Owner
+            # Deteksi juga jika ada perubahan pada kolom PIC Owner
             changed_rows = edited_dataframe[
                 (edited_dataframe["Status HK"] != display_dataframe["Status HK"])
                 | (edited_dataframe["Catatan"] != display_dataframe["Catatan"])

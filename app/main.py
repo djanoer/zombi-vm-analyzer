@@ -348,12 +348,26 @@ try:
     ] = "Pengecualian (Rejected)"
     # --------------------------------------------------------------------------
 
-    # Hitung statistik untuk validasi (FIX #2: match dengan tabel)
+    # Hitung statistik untuk validasi (match dengan tabel)
     total_in_table = len(combined_candidates)
     total_zombie = len(combined_candidates[combined_candidates["Label"] == "Kandidat Zombie"])
     total_disposal = len(combined_candidates[combined_candidates["Label"] == "Kandidat Disposal"])
-    total_with_score = len(combined_candidates[combined_candidates["Skor Idle (0-100)"] > 0])
 
+    # ==========================================================================
+    # ESTIMASI RESOURCE RECLAIM (Menghitung Potensi Penghematan)
+    # ==========================================================================
+    # 1. CPU & Memory HANYA dihitung dari VM Aktif (Kandidat Zombie)
+    zombie_vms = combined_candidates[combined_candidates["Label"] == "Kandidat Zombie"]
+    est_vcpu = zombie_vms["vCPU"].sum() if "vCPU" in zombie_vms.columns else 0
+    est_mem_gb = zombie_vms["Memory (GB)"].sum() if "Memory (GB)" in zombie_vms.columns else 0
+
+    # 2. Storage dihitung dari KEDUANYA (VM Aktif & Mati), diambil mentah tanpa konversi manual
+    actionable_vms = combined_candidates[
+        combined_candidates["Label"].isin(["Kandidat Zombie", "Kandidat Disposal"])
+    ]
+    est_storage_gb = actionable_vms["Provisioned Space (GB)"].sum() if "Provisioned Space (GB)" in actionable_vms.columns else 0
+    est_storage_tb = actionable_vms["Provisioned Space (TB)"].sum() if "Provisioned Space (TB)" in actionable_vms.columns else 0
+    # ==========================================================================
 
     if debug_mode:
         render_pipeline_debug(
@@ -363,6 +377,7 @@ try:
             parse_fail_counts,
         )
 
+    # Memanggil UI section dengan menghapus total_with_score secara tuntas
     render_validation_section(
         raw_dataframe,
         filtered_vms,
@@ -379,7 +394,10 @@ try:
         total_in_table,
         total_zombie,
         total_disposal,
-        total_with_score
+        est_vcpu,
+        est_mem_gb,
+        est_storage_gb,
+        est_storage_tb,
     )
 
     # Hanya ambil VM yang labelnya BUKAN "Tidak Ditandai" DAN BUKAN "Pengecualian (Rejected)"
