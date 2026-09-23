@@ -3,17 +3,28 @@
 # ==============================================================================
 """
 Module untuk save/load filter settings.
+
 FIX (17 Sep 2026):
 - Tambah tag_filter_input ke save/load settings
 - Auto-load filter saat aplikasi start
+
+PATCH NOTES (24 Sep 2026):
+- FILTER_SETTINGS_PATH tidak lagi didefinisikan ulang secara lokal --
+  diimpor dari app_config.py (satu-satunya sumber kebenaran untuk path
+  file data, konsisten dengan STATUS_DATABASE_PATH/TREND_DATABASE_PATH).
+- DATA_DIRECTORY.mkdir(...) yang diulang 3x diganti memanggil
+  ensure_data_directory() dari app_config.py.
+- Daftar deprecated_keys yang diduplikasi di load & save digabung
+  menjadi satu konstanta modul DEPRECATED_SETTING_KEYS.
+- TIDAK ADA perubahan pada perilaku/kontrak DEFAULT_SETTINGS -- seluruh
+  kunci tetap identik dan sudah diverifikasi cocok dengan
+  sidebar_controls.py dan main.py.
 """
 
+
 import json
-from pathlib import Path
-from app_config import DATA_DIRECTORY
 
-
-FILTER_SETTINGS_PATH = DATA_DIRECTORY / "filter_settings.json"
+from app_config import FILTER_SETTINGS_PATH, ensure_data_directory
 
 
 DEFAULT_SETTINGS = {
@@ -31,10 +42,19 @@ DEFAULT_SETTINGS = {
 }
 
 
+DEPRECATED_SETTING_KEYS = [
+    "memory_high",
+    "memory_low",
+    "downsize_vcpu_threshold",
+    "downsize_cpu_util_threshold",
+    "zombie_cpu_util_threshold",
+    "zombie_network_threshold",
+]
+
+
 def load_filter_settings():
     """Load filter settings dari JSON."""
-    # Ensure directory exists
-    DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    ensure_data_directory()
 
     if not FILTER_SETTINGS_PATH.exists():
         return DEFAULT_SETTINGS.copy(), None
@@ -46,13 +66,7 @@ def load_filter_settings():
         settings = DEFAULT_SETTINGS.copy()
         settings.update(saved)
 
-        # Clean deprecated keys
-        deprecated_keys = [
-            "memory_high", "memory_low", "downsize_vcpu_threshold",
-            "downsize_cpu_util_threshold", "zombie_cpu_util_threshold",
-            "zombie_network_threshold"
-        ]
-        for key in deprecated_keys:
+        for key in DEPRECATED_SETTING_KEYS:
             settings.pop(key, None)
 
         return settings, None
@@ -63,17 +77,10 @@ def load_filter_settings():
 
 def save_filter_settings(settings):
     """Save filter settings ke JSON."""
-    # Ensure directory exists
-    DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    ensure_data_directory()
 
-    # Clean settings (hapus deprecated keys)
     clean_settings = dict(settings)
-    deprecated_keys = [
-        "memory_high", "memory_low", "downsize_vcpu_threshold",
-        "downsize_cpu_util_threshold", "zombie_cpu_util_threshold",
-        "zombie_network_threshold"
-    ]
-    for key in deprecated_keys:
+    for key in DEPRECATED_SETTING_KEYS:
         clean_settings.pop(key, None)
 
     try:
@@ -87,7 +94,7 @@ def save_filter_settings(settings):
 
 def reset_filter_settings():
     """Reset filter settings ke default."""
-    DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    ensure_data_directory()
 
     try:
         if FILTER_SETTINGS_PATH.exists():

@@ -3,31 +3,42 @@
 # ------------------------------------------------------------------------------
 #  Lokasi : app/data_loader.py
 #  Peran  : Loader CSV metrik utama dan CSV Power Off dengan schema berbeda.
-#  UPDATE (15 Sep 2026):
-#  - Mendukung dua alias durasi Power Off:
-#      * Days Powered Off
-#      * Power Off Days
-#  - Keduanya dinormalisasi menjadi nama internal:
-#      * Days Powered Off
-#  - Perbedaan metadata Power Off tidak menggagalkan proses selama kolom kunci
-#    Name, Power State, durasi Power Off, dan UUID tersedia.
+#
+#  PATCH NOTES (24 Sep 2026, v3):
+#  - Ditemukan: berbagai file Power Off dari tool export berbeda memakai
+#    nama kolom vCenter yang BERBEDA-BEDA ("Summary|Parent vCenter",
+#    "Parent vCenter", dst.) -- menambah alias literal satu-per-satu
+#    tidak scalable.
+#  - DITAMBAHKAN: fallback AUTO-DETECT di normalize_power_off_columns().
+#    Jika setelah pencocokan alias literal TIDAK ADA kolom "vCenter",
+#    sistem mencari kolom lain yang namanya mengandung kata "vcenter"
+#    (case-insensitive). Jika TEPAT SATU ditemukan, otomatis dipetakan
+#    ke "vCenter" dengan info ke pengguna. Jika LEBIH DARI SATU
+#    ditemukan, sistem menolak dengan error yang jelas (tidak menebak).
+#  - Alias literal di POWER_OFF_COLUMN_ALIASES tetap dipertahankan
+#    sebagai lapis pertama (lebih cepat & tidak perlu peringatan) untuk
+#    variasi yang SUDAH diketahui.
 # ==============================================================================
 import re
 
+
 import pandas as pd
 import streamlit as st
+
 
 from constants import (
     MEMORY_COL_CANDIDATES,
     NUMERIC_COLUMNS_BASE,
     UPTIME_UNKNOWN_TOKENS,
     INACTIVE_STATE_KEYWORDS,
-    POWER_OFF_REQUIRED_COLUMNS, # FIX REFACTOR: Diambil dari constants
-    POWER_OFF_COLUMN_ALIASES,   # FIX REFACTOR: Diambil dari constants
-    PIC_COLUMN_ALIASES          # FIX REFACTOR: Diambil dari constants
+    POWER_OFF_REQUIRED_COLUMNS,
+    POWER_OFF_OPTIONAL_COLUMNS,
+    POWER_OFF_COLUMN_ALIASES,
+    PIC_COLUMN_ALIASES,
 )
 from csv_validation import validate_dataframe_structure, validate_key_values
 from parsers import parse_numeric_verbose
+
 
 
 def normalize_column_name(column):
@@ -36,22 +47,82 @@ def normalize_column_name(column):
     return column.strip('"').strip("'").strip()
 
 
+
+def _normalize_alias_lookup_key(column):
+    """
+    Normalisasi kunci untuk pencocokan alias yang TOLERAN terhadap:
+    - Perbedaan kapitalisasi ("VCenter" vs "vCenter").
+    - Spasi ekstra di sekitar tanda "|" ("Summary | Parent vCenter"
+      vs "Summary|Parent vCenter").
+    """
+    normalized = normalize_column_name(column)
+    normalized = re.sub(r"\s*\|\s*", "|", normalized)
+    return normalized.lower()
+
+
+
+_POWER_OFF_ALIAS_LOOKUP = {
+    _normalize_alias_lookup_key(key): value
+    for key, value in POWER_OFF_COLUMN_ALIASES.items()
+}
+
+
+
 def normalize_power_off_columns(dataframe):
-    """Normalisasi nama kolom Power Off ke schema internal yang seragam."""
+    """
+    Normalisasi nama kolom Power Off ke schema internal yang seragam.
+
+    Urutan pencocokan kolom vCenter:
+    1. Alias literal (POWER_OFF_COLUMN_ALIASES), case/space-tolerant.
+    2. Auto-detect: kolom TERSISA yang namanya mengandung kata "vcenter"
+       (case-insensitive). Hanya diterima jika PERSIS SATU kandidat
+       ditemukan -- jika lebih dari satu, sistem menolak dan meminta
+       standardisasi nama kolom, bukan menebak.
+    """
     dataframe = dataframe.copy()
     dataframe.columns = [
         normalize_column_name(column)
         for column in dataframe.columns
     ]
 
-    rename_map = {
-        column: POWER_OFF_COLUMN_ALIASES[column]
-        for column in dataframe.columns
-        if column in POWER_OFF_COLUMN_ALIASES
-    }
+    rename_map = {}
+    for column in dataframe.columns:
+        lookup_key = _normalize_alias_lookup_key(column)
+        if lookup_key in _POWER_OFF_ALIAS_LOOKUP:
+            rename_map[column] = _POWER_OFF_ALIAS_LOOKUP[lookup_key]
 
     dataframe = dataframe.rename(columns=rename_map)
+
+    if "vCenter" not in dataframe.columns:
+        vcenter_like_columns = [
+            column
+            for column in dataframe.columns
+            if "vcenter" in _normalize_alias_lookup_key(column)
+        ]
+
+        if len(vcenter_like_columns) == 1:
+            detected_column = vcenter_like_columns[0]
+            dataframe = dataframe.rename(columns={detected_column: "vCenter"})
+            st.info(
+                f"ℹ️ Kolom **'{detected_column}'** otomatis dikenali sebagai "
+                "kolom vCenter (nama kolom tidak cocok dengan alias standar, "
+                "tapi mengandung kata 'vCenter'). Mohon verifikasi hasil "
+                "analisis Power Off pada file ini."
+            )
+        elif len(vcenter_like_columns) > 1:
+            raise ValueError(
+                "Ditemukan lebih dari satu kolom yang mengandung kata "
+                f"'vCenter': {vcenter_like_columns}. Sistem tidak dapat "
+                "menentukan otomatis kolom mana yang benar -- mohon "
+                "standardisasi nama kolom pada file export, atau beri "
+                "tahu developer untuk menambahkan alias eksplisit."
+            )
+        # Jika tidak ada kandidat sama sekali, biarkan validasi
+        # POWER_OFF_REQUIRED_COLUMNS di bawah menangani error-nya
+        # dengan pesan yang menyertakan daftar kolom aktual.
+
     return dataframe
+
 
 
 def _read_candidate(file, encoding, separator):
@@ -65,12 +136,14 @@ def _read_candidate(file, encoding, separator):
     )
 
 
+
 def _score(dataframe, expected):
     detected = {
         normalize_column_name(column)
         for column in dataframe.columns
     }
     return len(detected.intersection(expected)) * 100 + dataframe.shape[1]
+
 
 
 def _read_robust(file, expected_columns):
@@ -121,9 +194,11 @@ def _read_robust(file, expected_columns):
         ~dataframe.columns.duplicated(),
     ]
 
+
 def process_data(file):
     expected_columns = {
         "Name",
+        "vCenter",
         "State",
         "Uptime / Days",
         "Summary|vSphere Tag",
@@ -139,6 +214,14 @@ def process_data(file):
 
     if dataframe.empty:
         raise ValueError("File CSV metrik kosong.")
+
+    if "vCenter" not in dataframe.columns:
+        raise ValueError(
+            "Kolom 'vCenter' tidak ditemukan pada file metrik. "
+            "Kolom ini wajib untuk membangun Identity Key "
+            "(vCenter + UUID) dan mencegah VM dari vCenter berbeda "
+            "tercampur pada identity yang sama."
+        )
 
     memory_column = next(
         (
@@ -156,7 +239,16 @@ def process_data(file):
     validate_key_values(dataframe)
     return dataframe
 
+
 def process_power_off_data(file):
+    """
+    Loader CSV Power Off (enrichment).
+
+    Kontrak:
+    - Name + Power State + Days Powered Off wajib tersedia.
+    - vCenter wajib tersedia (via alias literal ATAU auto-detect).
+    - UUID bersifat opsional pada file ini.
+    """
     expected_columns = {
         "Name",
         "Power State",
@@ -164,6 +256,8 @@ def process_power_off_data(file):
         "Power Off Days",
         "Days Power Off",
         "UUID",
+        "Summary|Parent vCenter",
+        "Parent vCenter",
     }
 
     dataframe = _read_robust(file, expected_columns)
@@ -177,15 +271,61 @@ def process_power_off_data(file):
 
     if missing_columns:
         raise ValueError(
-            "Kolom wajib file Power Off tidak ditemukan setelah alias mapping: "
-            f"{missing_columns}. Alias durasi yang didukung: "
-            "'Days Powered Off', 'Power Off Days', dan 'Days Power Off'."
+            "Kolom wajib file Power Off tidak ditemukan setelah alias "
+            f"mapping & auto-detect: {missing_columns}. Alias durasi yang "
+            "didukung: 'Days Powered Off', 'Power Off Days', 'Days Power "
+            "Off'. Alias vCenter yang didukung: 'Summary|Parent vCenter', "
+            "'Parent vCenter', atau kolom apapun yang mengandung kata "
+            "'vCenter'. Kolom yang terbaca dari file: "
+            f"{list(dataframe.columns)}"
         )
 
     if dataframe.empty:
         raise ValueError("File Power Off kosong.")
 
+    for column in POWER_OFF_OPTIONAL_COLUMNS:
+        if column not in dataframe.columns:
+            dataframe[column] = pd.NA
+
+    name_clean = (
+        dataframe["Name"].astype(str).str.strip().str.lower()
+    )
+    uuid_clean = (
+        dataframe["UUID"].astype("string").str.strip().str.lower()
+        if "UUID" in dataframe.columns
+        else pd.Series("", index=dataframe.index)
+    )
+    vcenter_clean = (
+        dataframe["vCenter"].astype(str).str.strip().str.upper()
+    )
+
+    check_frame = pd.DataFrame(
+        {
+            "vcenter_clean": vcenter_clean,
+            "name_clean": name_clean,
+            "uuid_clean": uuid_clean.fillna(""),
+        }
+    )
+
+    duplicated_mask = check_frame[["vcenter_clean", "name_clean"]].duplicated(keep=False)
+
+    if duplicated_mask.any():
+        ambiguous_groups = (
+            check_frame.loc[duplicated_mask]
+            .groupby(["vcenter_clean", "name_clean"])["uuid_clean"]
+            .nunique()
+        )
+        truly_ambiguous = ambiguous_groups[ambiguous_groups > 1]
+
+        if not truly_ambiguous.empty:
+            raise ValueError(
+                "File Power Off memiliki kombinasi vCenter+Name yang sama "
+                f"dengan UUID berbeda: {truly_ambiguous.index.tolist()}. "
+                "Tidak dapat diproses secara aman -- periksa data sumber."
+            )
+
     return dataframe
+
 
 
 def load_and_merge_uploads(uploaded_files):
@@ -211,25 +351,32 @@ def load_and_merge_uploads(uploaded_files):
         ~combined.columns.duplicated(),
     ]
 
-    removed = 0
+    before = len(combined)
+    combined = combined.drop_duplicates(keep="first")
+    removed = before - len(combined)
 
-    if "Name" in combined.columns:
-        before = len(combined)
-        keys = (
-            ["Name", "UUID"]
-            if "UUID" in combined.columns
-            else ["Name"]
+    if removed:
+        st.info(
+            f"ℹ️ {removed} baris duplikat identik (seluruh kolom sama) "
+            "ditemukan saat penggabungan file dan dihapus otomatis."
         )
-        combined = combined.drop_duplicates(
-            subset=keys,
-            keep="first",
-        )
-        removed = before - len(combined)
 
     return combined, failed_files, removed
 
 
+
 def load_power_off_uploads(uploaded_files):
+    """
+    Muat & gabungkan CSV Power Off.
+
+    CATATAN PENTING: setiap file diproses secara TERPISAH lewat
+    process_power_off_data() sebelum digabung. Ini krusial karena file
+    Anda terbukti memakai nama kolom vCenter yang BERBEDA antar file
+    (mis. "Summary|Parent vCenter" di file 1, "Parent vCenter" di file
+    2) -- masing-masing dinormalisasi ke "vCenter" secara independen
+    SEBELUM digabung, sehingga penggabungan tetap konsisten walau
+    format sumber berbeda-beda.
+    """
     dataframe_list = []
     failed_files = []
 
@@ -250,12 +397,10 @@ def load_power_off_uploads(uploaded_files):
         sort=False,
     )
 
-    combined = combined.drop_duplicates(
-        subset=["Name", "UUID"],
-        keep="first",
-    )
+    combined = combined.drop_duplicates(keep="first")
 
     return combined, failed_files
+
 
 
 def resolve_memory_column(dataframe):
@@ -267,6 +412,7 @@ def resolve_memory_column(dataframe):
         ),
         MEMORY_COL_CANDIDATES[-1],
     )
+
 
 
 def flag_data_quality(dataframe):
@@ -286,6 +432,7 @@ def flag_data_quality(dataframe):
     ] = "Tidak Diketahui"
 
     return dataframe
+
 
 
 def parse_numeric_columns(dataframe, memory_column):
@@ -314,6 +461,7 @@ def parse_numeric_columns(dataframe, memory_column):
                 failures[column] = failed_count
 
     return dataframe, failures
+
 
 
 def normalize_state_column(dataframe):
@@ -348,20 +496,20 @@ def normalize_state_column(dataframe):
     return dataframe, states, active
 
 
+
 def process_pic_data(file):
     file_name = file.name.lower()
 
-    # Deteksi ekstensi file (Excel vs CSV)
     if file_name.endswith(('.xls', '.xlsx')):
         file.seek(0)
         dataframe = pd.read_excel(file)
         dataframe.columns = [normalize_column_name(c) for c in dataframe.columns]
     else:
-        # Gunakan parser CSV yang sudah ada
-        expected_columns = {"Name", "UUID", "PIC Owner", "PIC", "Owner"}
+        expected_columns = {
+            "Name", "UUID", "PIC Owner", "PIC", "Owner", "vCenter",
+        }
         dataframe = _read_robust(file, expected_columns)
 
-    # Petakan nama kolom ke format standar dari konstanta
     rename_map = {}
     for col in dataframe.columns:
         lower_col = col.lower()
@@ -379,11 +527,13 @@ def process_pic_data(file):
         dataframe["Name"] = ""
     if "UUID" not in dataframe.columns:
         dataframe["UUID"] = ""
+    if "vCenter" not in dataframe.columns:
+        dataframe["vCenter"] = pd.NA
 
-    # Bersihkan NaN menjadi string kosong
     dataframe["PIC Owner"] = dataframe["PIC Owner"].fillna("").astype(str).str.strip()
 
-    return dataframe[["Name", "UUID", "PIC Owner"]]
+    return dataframe[["Name", "UUID", "vCenter", "PIC Owner"]]
+
 
 
 def load_pic_uploads(uploaded_files):
@@ -400,5 +550,8 @@ def load_pic_uploads(uploaded_files):
         return None, failed_files
 
     combined = pd.concat(dataframe_list, ignore_index=True, sort=False)
-    combined = combined.drop_duplicates(subset=["Name", "UUID"], keep="last")
+    combined = combined.drop_duplicates(
+        subset=["Name", "UUID", "vCenter"],
+        keep="last",
+    )
     return combined, failed_files

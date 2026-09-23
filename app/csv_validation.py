@@ -6,7 +6,6 @@
 # ==============================================================================
 from constants import REQUIRED_COLUMNS_BASE
 
-
 def validate_dataframe_structure(dataframe, memory_column):
     required_columns = REQUIRED_COLUMNS_BASE + [memory_column]
     missing_columns = [
@@ -26,7 +25,7 @@ def validate_dataframe_structure(dataframe, memory_column):
             f"{missing_columns}."
         )
 
-    # FIX BUG #4: Cegah KeyError dengan memastikan kolom ada sebelum dicek
+    # Cegah KeyError dengan memastikan kolom ada sebelum dicek
     for column in ["Name", "State", "UUID"]:
         if column in dataframe.columns:
             non_empty = (
@@ -42,7 +41,6 @@ def validate_dataframe_structure(dataframe, memory_column):
                 )
 
     return dataframe
-
 
 def validate_key_values(dataframe):
     """Hanya memvalidasi Name & State tidak boleh KOSONG SEMUA. Format nilai

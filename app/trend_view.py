@@ -1,97 +1,298 @@
 # ==============================================================================
-#  ZOMBIE VM ANALYZER v4.0 — MODULE: trend_view.py
+# ZOMBIE VM ANALYZER v4.0 — MODULE: trend_view.py
 # ------------------------------------------------------------------------------
-#  Lokasi   : app/trend_view.py
-#  Peran    : Rendering section "📈 Analisis Tren Multi-Periode" — menampilkan
-#             VM yang konsisten idle >= N periode berturut-turut tanpa gap,
-#             dan status rekaman periode saat ini.
-#  Depends  : streamlit, trend_analysis.py
-#  Dipakai  : main.py
-# ------------------------------------------------------------------------------
-#  ATURAN EDIT:
-#  - Modul ini HANYA menampilkan hasil dari trend_analysis.py — jangan taruh
-#    logika penghitungan streak/gap di sini.
-#  - UPDATE (13 Sep 2026): label "(Fase 4)" dihapus dari judul section —
-#    istilah fase adalah jargon internal development, tidak relevan untuk
-#    tampilan yang dipakai sehari-hari.
+# PATCH NOTES (24 Sep 2026):
+# - Kolom "UUID" DIHAPUS dari tampilan tabel (display_columns) untuk
+#   konsistensi dengan results_view.py -- HANYA perubahan tampilan UI.
+#   UUID tetap ikut ke file export Excel (export_columns TIDAK diubah).
+# - Kolom "vCenter" TETAP tampil.
 # ==============================================================================
+
+
 import io
+
+
 import pandas as pd
 import streamlit as st
 
-from trend_analysis import compute_consistent_idle_vms, count_recorded_periods
+
+from constants import (
+    TREND_METRIC_WINDOW_DEFAULT,
+    TREND_SNAPSHOT_SOURCE_DEFAULT,
+)
+from trend_analysis import (
+    compute_consistent_idle_vms,
+    count_recorded_observations,
+)
 
 
-def render_trend_section(min_periods, tanggal_proses, record_success, record_error):
+
+def _ensure_trend_columns(dataframe):
+    result = dataframe.copy()
+
+    defaults = {
+        "Nama VM": "",
+        "vCenter": "",
+        "UUID": "",
+        "Identity Key": "",
+        "PIC Owner": "",
+        "Status HK": "",
+        "Jumlah Observasi Kandidat Berturut-turut": 0,
+        "Total Observasi": 0,
+        "Observasi Pertama": "",
+        "Observasi Terakhir": "",
+        "Jeda Observasi Maksimum (Hari)": None,
+        "Skor Idle Terakhir": 0.0,
+        "Relative Period": TREND_METRIC_WINDOW_DEFAULT,
+        "Sumber Snapshot": TREND_SNAPSHOT_SOURCE_DEFAULT,
+    }
+
+    for column, default_value in defaults.items():
+        if column not in result.columns:
+            result[column] = default_value
+
+    return result
+
+
+
+def render_trend_section(
+    min_periods,
+    tanggal_proses,
+    record_success,
+    record_error,
+):
     st.write("---")
-    st.write("### 📈 Analisis Tren Multi-Periode")
+    st.write("### 📈 Analisis Tren Observasi Aktual")
 
     if record_success:
-        st.success(f"✅ Snapshot periode **{tanggal_proses}** berhasil direkam ke riwayat tren.")
+        st.success(
+            f"✅ Observasi **{tanggal_proses}** "
+            "berhasil direkam ke riwayat trend."
+        )
     else:
-        st.error(f"❌ Gagal merekam snapshot periode ini: {record_error}. Data tren untuk periode {tanggal_proses} mungkin tidak lengkap.")
+        st.error(
+            f"❌ Gagal merekam observasi ini: "
+            f"{record_error}. Histori trend mungkin belum lengkap."
+        )
 
-    n_periods = count_recorded_periods()
-    st.caption(f"Total periode tercatat sejauh ini: **{n_periods}**. Minimum periode dibutuhkan untuk deteksi konsistensi: **{min_periods}**.")
+    total_observations = count_recorded_observations()
 
-    if n_periods < min_periods:
-        st.info(f"ℹ️ Belum cukup data periode ({n_periods}/{min_periods}) untuk mendeteksi VM yang konsisten idle. Lanjutkan analisa mingguan hingga minimum periode terpenuhi.")
+    st.caption(
+        f"Total tanggal observasi yang tercatat: "
+        f"**{total_observations}**. "
+        f"Minimum observasi kandidat berturut-turut: "
+        f"**{min_periods}**."
+    )
+
+    if total_observations < min_periods:
+        st.info(
+            f"ℹ️ Belum cukup observasi "
+            f"({total_observations}/{min_periods}) "
+            "untuk mendeteksi VM yang konsisten menjadi kandidat."
+        )
         return
 
-    consistent_df = compute_consistent_idle_vms(min_periods)
+    consistent_dataframe = compute_consistent_idle_vms(
+        min_periods
+    )
 
-    if consistent_df.empty:
-        st.success(f"Tidak ada VM yang idle {min_periods}+ periode berturut-turut tanpa gap saat ini.")
+    if consistent_dataframe.empty:
+        st.success(
+            "Tidak ada VM yang memenuhi minimum observasi "
+            "kandidat berturut-turut saat ini."
+        )
         return
 
-    st.warning(f"⚠️ Ditemukan **{len(consistent_df)} VM** yang konsisten idle {min_periods}+ periode berturut-turut TANPA GAP — kandidat prioritas tinggi untuk Housekeeping.")
-    st.metric(label="🚨 Total VM Kritis (Konsisten Idle)", value=f"{len(consistent_df)} VM")
+    consistent_dataframe = _ensure_trend_columns(
+        consistent_dataframe
+    )
 
-    max_streak = max(12, int(consistent_df["Jumlah Periode Idle Berturut-turut"].max()))
+    total_consistent = len(consistent_dataframe)
 
-    # ==========================================================================
-    # FIX: Tampilan UI (Sembunyikan UUID)
-    # ==========================================================================
-    display_columns = [col for col in consistent_df.columns if col != "UUID"]
+    st.warning(
+        f"⚠️ Ditemukan **{total_consistent} VM** "
+        f"yang terdeteksi sebagai kandidat pada "
+        f"{min_periods}+ observasi aktual terbaru."
+    )
+
+    st.metric(
+        label="🚨 Total VM Prioritas Review",
+        value=f"{total_consistent} VM",
+    )
+
+    max_streak = max(
+        1,
+        int(
+            consistent_dataframe[
+                "Jumlah Observasi Kandidat Berturut-turut"
+            ].max()
+        ),
+    )
+
+    # PATCH: "UUID" DIHAPUS dari display_columns (tampilan tabel saja).
+    # UUID tetap ada di consistent_dataframe & tetap ikut export_columns
+    # di bagian bawah fungsi ini.
+    display_columns = [
+        "Nama VM",
+        "vCenter",
+        "PIC Owner",
+        "Status HK",
+        "Jumlah Observasi Kandidat Berturut-turut",
+        "Total Observasi",
+        "Observasi Pertama",
+        "Observasi Terakhir",
+        "Jeda Observasi Maksimum (Hari)",
+        "Skor Idle Terakhir",
+        "Relative Period",
+        "Sumber Snapshot",
+    ]
+
+    display_columns = [
+        column
+        for column in display_columns
+        if column in consistent_dataframe.columns
+    ]
 
     st.dataframe(
-        consistent_df[display_columns],
+        consistent_dataframe[display_columns],
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Jumlah Periode Idle Berturut-turut": st.column_config.ProgressColumn(
-                "Periode Berturut-turut",
-                help="Visualisasi durasi idle tanpa henti",
-                format="%d periode",
-                min_value=0,
-                max_value=max_streak,
+            "vCenter": st.column_config.TextColumn(
+                "vCenter",
+                help="vCenter sumber VM.",
+                width="small",
             ),
-            "Periode Terakhir": st.column_config.TextColumn("Periode Terakhir", width="small"),
-            "PIC Owner": st.column_config.TextColumn("PIC Owner", width="medium"),
-            "Status HK": st.column_config.TextColumn("Status HK", width="medium"),
+            "Jumlah Observasi Kandidat Berturut-turut": (
+                st.column_config.ProgressColumn(
+                    "Observasi Kandidat Berturut-turut",
+                    help=(
+                        "Jumlah observasi aktual terbaru "
+                        "yang berturut-turut menjadi kandidat."
+                    ),
+                    format="%d observasi",
+                    min_value=0,
+                    max_value=max_streak,
+                )
+            ),
+            "Total Observasi": st.column_config.NumberColumn(
+                "Total Observasi",
+                format="%d",
+            ),
+            "Jeda Observasi Maksimum (Hari)": (
+                st.column_config.NumberColumn(
+                    "Jeda Maksimum",
+                    help=(
+                        "Jeda terbesar antarobservasi "
+                        "yang tercatat untuk VM."
+                    ),
+                    format="%d hari",
+                )
+            ),
+            "Skor Idle Terakhir": st.column_config.NumberColumn(
+                "Skor Idle Terakhir",
+                format="%.2f",
+            ),
+            "Relative Period": st.column_config.TextColumn(
+                "Relative Period",
+                help=(
+                    "Rentang tanggal relatif yang digunakan "
+                    "pada export vROps."
+                ),
+                width="medium",
+            ),
+            "Sumber Snapshot": st.column_config.TextColumn(
+                "Sumber Snapshot",
+                width="small",
+            ),
+            "Observasi Pertama": st.column_config.TextColumn(
+                "Observasi Pertama",
+                width="small",
+            ),
+            "Observasi Terakhir": st.column_config.TextColumn(
+                "Observasi Terakhir",
+                width="small",
+            ),
+            "PIC Owner": st.column_config.TextColumn(
+                "PIC Owner",
+                width="medium",
+            ),
+            "Status HK": st.column_config.TextColumn(
+                "Status HK",
+                width="medium",
+            ),
         },
     )
-    st.caption("Definisi: idle di SEMUA periode berturut-turut sejak periode terbaru, tanpa 1 pun periode 'tidak idle' di antaranya (gap = reset hitungan ke 0).")
 
-    # ==========================================================================
-    # FIX: TOMBOL DOWNLOAD / EXPORT DATA TREN (Susun UUID di paling awal)
-    # ==========================================================================
-    # Pastikan UUID dan Nama VM berada di index 0 dan 1
-    export_columns = ["UUID", "Nama VM"]
-    export_columns += [col for col in consistent_df.columns if col not in export_columns]
+    st.caption(
+        "Definisi: trend dihitung dari observasi aktual yang "
+        "benar-benar tercatat. Interval antaranalisis dapat "
+        "berbeda karena sistem berjalan manual. Tanggal yang "
+        "tidak dianalisis tidak dibuat sebagai record dan "
+        "tidak dianggap sebagai non-kandidat. Relative Period "
+        f"yang digunakan: {TREND_METRIC_WINDOW_DEFAULT}. "
+        "Kolom UUID tersedia pada file export Excel di bawah "
+        "untuk keperluan audit."
+    )
 
-    export_df = consistent_df[export_columns]
+    # Export TETAP menyertakan UUID dan Identity Key -- hanya TAMPILAN
+    # tabel di atas yang menyembunyikan UUID.
+    export_columns = [
+        "Identity Key",
+        "vCenter",
+        "UUID",
+        "Nama VM",
+        "PIC Owner",
+        "Status HK",
+        "Jumlah Observasi Kandidat Berturut-turut",
+        "Total Observasi",
+        "Observasi Pertama",
+        "Observasi Terakhir",
+        "Jeda Observasi Maksimum (Hari)",
+        "Skor Idle Terakhir",
+        "Relative Period",
+        "Sumber Snapshot",
+    ]
+
+    export_columns = [
+        column
+        for column in export_columns
+        if column in consistent_dataframe.columns
+    ]
+
+    export_dataframe = consistent_dataframe[
+        export_columns
+    ].copy()
 
     buffer = io.BytesIO()
-    file_name = f"Tren_VM_Idle_Kritis_{tanggal_proses}.xlsx" if tanggal_proses else "Tren_VM_Idle_Kritis.xlsx"
 
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        export_df.to_excel(writer, index=False, sheet_name="Tren Konsisten Idle")
+    file_name = (
+        f"Tren_VM_Observasi_Aktual_{tanggal_proses}.xlsx"
+        if tanggal_proses
+        else "Tren_VM_Observasi_Aktual.xlsx"
+    )
+
+    with pd.ExcelWriter(
+        buffer,
+        engine="openpyxl",
+    ) as writer:
+        export_dataframe.to_excel(
+            writer,
+            index=False,
+            sheet_name="Trend Observasi Aktual",
+        )
 
     st.download_button(
-        label="📥 Download Data Tren (Excel)",
+        label="📥 Download Data Trend (Excel)",
         data=buffer.getvalue(),
         file_name=file_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        help="Ekspor daftar VM kritis ini ke format Excel untuk kebutuhan pelaporan.",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        help=(
+            "Ekspor daftar VM prioritas beserta UUID, "
+            "vCenter, Identity Key, dan evidence trend "
+            "observasi aktual."
+        ),
     )

@@ -1,17 +1,17 @@
 # ==============================================================================
 #  🧟 ZOMBIE VM ANALYZER v4.0 — MODULE: manual_book.py
 # ------------------------------------------------------------------------------
-#  UPDATE (18 Sep 2026):
-#  - Gunakan st.expander() untuk collapsible section
-#  - Tambah section Threshold Preset (4 varian)
-#  - Tambah section Cara Menggunakan Number Input
-#  - Tambah section Independensi Threshold Aktif vs Mati
-#  - Tambah section Sanity Check Validation
-#  - Tambah section Troubleshooting Hasil
-#  - Hapus estimasi jumlah VM yang dinamis
-#  - Tambah panduan Data PIC / Owner
-#  - Tambah section Manajemen Status Housekeeping (HK) & Pengecualian Rejected
-#  - Update alur Langkah-langkah Analisis (Save DB & Ekspor Tren)
+#  UPDATE (24 Sep 2026):
+#  - Manual diselaraskan dengan basecode final, kontrak identity, dan
+#    alur analisis aktual.
+#  - Sumber data diperjelas:
+#      * CSV Metrik VM berasal dari dashboard vROps "Lembar Kerja".
+#      * CSV Power Off berasal dari dashboard vROps "Status Power off".
+#  - Informasi tools diagnosis tidak dimasukkan ke manual user-facing.
+#    Tools diagnosis tetap menjadi utilitas teknis/developer terpisah.
+#  - UUID dijelaskan sebagai data internal/audit yang disembunyikan dari UI.
+#  - Status, trend observasi aktual, fallback identity, dan batasan
+#    Power On/Power Off diselaraskan dengan implementasi final.
 # ==============================================================================
 import streamlit as st
 
@@ -19,314 +19,374 @@ import streamlit as st
 MANUAL_BOOK_MARKDOWN = """
 ### 🎯 Tentang Aplikasi Ini
 
-**Zombie VM Analyzer** adalah Decision-Support System (DSS) yang dirancang untuk membantu proses pengelolaan siklus hidup Virtual Machine (VM) secara lebih objektif dan terukur.
+**Zombie VM Analyzer** adalah *Decision-Support System* (DSS) yang membantu proses pengelolaan siklus hidup Virtual Machine (VM) secara objektif, terukur, dan terdokumentasi.
 
-Analisis dilakukan berdasarkan data utilisasi aktual VM (seperti pemakaian CPU, memori, storage, dan network) sehingga hasil skoring idle dan justifikasi yang dihasilkan bersifat kuantitatif, dapat diverifikasi, dan tidak bergantung pada asumsi atau opini subjektif.
+Aplikasi menganalisis utilisasi aktual VM, seperti CPU, IOPS, throughput, network, uptime, dan status power. Hasilnya berupa kandidat, skor idle, dan justifikasi terstruktur yang dapat digunakan sebagai evidence untuk proses housekeeping (HK), review PIC, decommission, atau penghapusan VM yang sudah tidak digunakan.
 
-**Goal:** Menyediakan evidence (bukti objektif) berupa skor idle dan justifikasi terstruktur, yang dihitung dari data utilisasi VM, sebagai dasar pendukung (supporting evidence) untuk inisiasi proses housekeeping (HK), decommission, atau penghapusan VM yang sudah tidak digunakan (zombie VM).
+**Penting:** Sistem ini hanya melakukan *screening* dan menyediakan evidence. Sistem tidak menghapus, mematikan, atau melakukan decommission VM secara otomatis. Keputusan final tetap berada pada user, PIC, dan tim eksekutor.
+
+---
+
+### 🔑 Identity VM: vCenter + UUID
+
+Setiap VM diidentifikasi menggunakan **Identity Key**, bukan hanya Name atau UUID.
+
+Hal ini penting karena:
+
+- Nama VM dapat berubah.
+- UUID yang sama dapat muncul pada vCenter berbeda.
+- Name saja tidak aman digunakan sebagai identity lintas-vCenter.
+
+Identity utama:
+
+```text
+Identity Key = vCenter + UUID
+Contoh       = VC02::50299c9a-f543-aebe-a32f-597a07b83e20
+```
+
+Untuk VM Powered Off tanpa UUID:
+
+```text
+Identity Key = vCenter + Name
+Contoh       = VC02::NAME::nama-vm
+```
+
+Aturan identity:
+
+- `vCenter` wajib tersedia pada CSV Metrik VM.
+- `vCenter` wajib tersedia pada CSV Power Off, baik sebagai `vCenter`, `Parent vCenter`, maupun `Summary|Parent vCenter`.
+- Nilai seperti `TBN-VC01` dan `TBN-VC02` dinormalisasi menjadi `VC01` dan `VC02`.
+- UUID tetap disimpan sebagai UUID murni untuk data, audit, merge, dan trend.
+- UUID disembunyikan dari tabel UI utama agar tampilan lebih ringkas.
+- UUID tetap tersedia pada file export Excel.
+- VM Power On tanpa UUID tidak dapat dianalisis secara aman dan akan ditolak.
+- VM Power Off tanpa UUID masih dapat diproses jika `vCenter` dan `Name` tersedia.
 
 ---
 
 ### 📊 Sumber Data
 
-#### 1. CSV Metrik VM (Master)
-Berisi daftar seluruh VM (aktif/Powered On maupun mati) beserta metrik beban kerja persentil ke-95 (P95).
+#### 1. CSV Metrik VM — Dashboard vROps "Lembar Kerja"
 
-**Kolom Wajib:**
-- `Name` — Nama VM
-- `State` — Status (Powered On/Off)
-- `CPU Percentile 95%` — CPU P95 (%)
-- `IOPS Percentile 95%` — IOPS P95
-- `Throughput Percentile 95%` — Throughput P95 (KBps)
-- `Network I/O | Usage Rate (KBps) - 95th Percentile` — Network P95 (KBps)
-- `Status Idle` — Status Idle (0/1)
-- `Uptime / Days` — Uptime VM (hari)
-- `Summary|vSphere Tag` — Tag kritikalitas
+CSV Metrik VM diambil dari dashboard vROps **"Lembar Kerja"**.
 
-**Kolom Opsional:**
-- `vCPU`, `Memory (GB)`, `Provisioned Space (GB)`, dll
+File ini merupakan **master list** dan harus berisi keseluruhan VM, baik:
 
-#### 2. CSV Power Off (Opsional)
-Berisi daftar VM yang mati beserta durasi Days Powered Off.
+- VM `Powered On`.
+- VM `Powered Off`.
 
-**Kolom Wajib:**
-- `Name` — Nama VM
-- `Power State` — Status (harus "Powered Off")
-- `Days Powered Off` / `Power Off Days` — Durasi mati (hari)
-- `UUID` — UUID VM (untuk join dengan CSV Master)
+CSV ini menjadi sumber utama untuk identitas VM, metrik utilisasi, resource, State, vCenter, UUID, dan metadata VM.
 
-#### 3. Data PIC / Owner (Opsional)
-Berisi file Excel/CSV pemetaan (mapping) identitas VM dengan pihak yang bertanggung jawab. Sistem mendeteksi kolom secara pintar.
-- **Identitas (Pilih Salah Satu):** `Name`, `Nama VM`, `UUID`, dll.
-- **Pemilik (Wajib):** `PIC`, `Owner`, `PIC Owner`, dll.
+**Kolom wajib:**
 
----
+- `Name` — Nama VM.
+- `vCenter` — vCenter sumber VM, misalnya `TBN-VC01` atau `TBN-VC02`.
+- `UUID` — UUID VM. Kolom wajib ada; nilainya wajib untuk Power On dan boleh kosong untuk Power Off.
+- `State` — Status VM, misalnya `Powered On` atau `Powered Off`.
+- `CPU Percentile 95%` — CPU P95 dalam persen.
+- `IOPS Percentile 95%` — IOPS P95.
+- `Throughput Percentile 95%` — Throughput P95 dalam KBps.
+- `Network I/O | Usage Rate (KBps) - 95th Percentile` — Network P95 dalam KBps.
+- `Status Idle` — Status idle, biasanya 0 atau 1.
+- `Uptime / Days` — Uptime VM dalam hari.
+- `Summary|vSphere Tag` — Tag kritikalitas dan metadata tag VM.
+- Salah satu kolom memory yang didukung: `Memory Percentile 95%` atau format legacy `Memort Percentile 95%`.
 
-### 🎯 Threshold Preset — Rekomendasi Cepat
+**Kolom opsional:**
 
-Untuk memudahkan pemilihan threshold, tersedia 4 preset yang sudah dioptimalkan berdasarkan analisis distribusi data vROps:
+- `vCPU`.
+- `Memory (GB)`.
+- `Provisioned Space (GB)`.
+- `Provisioned Space (TB)`.
+- Host, Cluster, Datastore, Guest OS, dan metadata lainnya.
 
-#### 1. Ultra Konservatif (False Positive < 5%)
-- **CPU P95:** ≤ 0.5%
-- **IOPS P95:** ≤ 1.5
-- **Throughput P95:** ≤ 0.07 KBps
-- **Network P95:** ≤ 30 KBps
-- **Use Case:** Production critical, banking core system
-- **False Positive Rate:** < 5%
-- **Rekomendasi:** Untuk VM critical yang tidak boleh ada false positive
+#### 2. CSV Power Off — Dashboard vROps "Status Power off"
 
-#### 2. Konservatif (False Positive < 10%) — ⭐ REKOMENDASI
-- **CPU P95:** ≤ 0.8%
-- **IOPS P95:** ≤ 2.0
-- **Throughput P95:** ≤ 0.10 KBps
-- **Network P95:** ≤ 50 KBps
-- **Use Case:** Production banking (recommended)
-- **False Positive Rate:** < 10%
-- **Rekomendasi:** Balance optimal antara risk dan coverage
+CSV Power Off diambil dari dashboard vROps **"Status Power off"**.
 
-#### 3. Moderat (False Positive ~15%)
-- **CPU P95:** ≤ 1.5%
-- **IOPS P95:** ≤ 3.0
-- **Throughput P95:** ≤ 0.15 KBps
-- **Network P95:** ≤ 75 KBps
-- **Use Case:** Development, testing, non-critical
-- **False Positive Rate:** ~15%
-- **Rekomendasi:** Untuk non-production atau housekeeping besar-besaran
+File ini berisi subset VM yang Power Off dan digunakan sebagai **enrichment** untuk menambahkan informasi durasi mati (`Days Powered Off`) ke master list dari CSV Metrik VM.
 
-#### 4. Agresif (False Positive ~20%)
-- **CPU P95:** ≤ 2.5%
-- **IOPS P95:** ≤ 5.0
-- **Throughput P95:** ≤ 0.25 KBps
-- **Network P95:** ≤ 100 KBps
-- **Use Case:** Housekeeping besar-besaran, non-production only
-- **False Positive Rate:** ~20%
-- **Rekomendasi:** Hanya untuk non-production, banyak false positive
+CSV Power Off bukan pengganti CSV Metrik VM. VM Power On tetap berasal dari master list dan tidak boleh hilang ketika CSV Power Off digabungkan.
 
-💡 **Tips:** Mulai dengan preset "Konservatif", lalu sesuaikan berdasarkan hasil validasi manual.
+**Kolom wajib:**
+
+- `Name` — Nama VM.
+- `Power State` — Status Power Off.
+- `Days Powered Off` — Durasi VM dalam kondisi Power Off.
+- `Parent vCenter` — vCenter sumber VM.
+
+Nama kolom vCenter yang didukung:
+
+- `vCenter`.
+- `Parent vCenter`.
+- `Summary|Parent vCenter`.
+- Variasi lain yang mengandung kata `vCenter` dapat dikenali otomatis jika hanya ada satu kolom yang cocok.
+
+**Kolom opsional:**
+
+- `UUID` — digunakan sebagai identity utama jika tersedia.
+- `Parent Cluster`.
+- `Parent Host`.
+- `Datastore`.
+- `Guest OS`.
+- `Reclaimable Disk Space (GB)`.
+- `Provisioned Space (GB)`.
+- `Provisioned Space (TB)`.
+
+Jika UUID Power Off kosong, sistem menggunakan fallback `vCenter + Name`.
 
 ---
 
-### ⚙️ Cara Menggunakan Number Input (Threshold Manual)
+### 👤 Data PIC / Owner
 
-Jika Anda memilih "Custom (Atur Manual)", gunakan number input untuk set threshold secara presisi:
+Data PIC/Owner dapat diunggah melalui CSV atau Excel.
 
-#### Cara Input Nilai:
+Kolom identitas yang dapat digunakan:
 
-1. **Ketik Langsung:**
-   - Klik pada kolom input
-   - Ketik nilai (mis. `0.8` untuk CPU, `0.10` untuk Throughput)
-   - Tekan Enter
+- `Name`.
+- `Nama VM`.
+- `UUID`.
+- `vCenter`.
 
-2. **Gunakan Tombol ▲▼:**
-   - Klik tombol ▲ untuk naikkan nilai (step: 0.1, 0.5, 0.01, 1.0)
-   - Klik tombol ▼ untuk turunkan nilai
-   - Lebih presisi daripada slider!
+Kolom pemilik yang didukung:
 
-3. **Format Desimal:**
-   - CPU: 1 desimal (mis. `0.8`, `1.5`)
-   - IOPS: 1 desimal (mis. `2.0`, `3.5`)
-   - Throughput: 2 desimal (mis. `0.10`, `0.15`)
-   - Network: 0 desimal (mis. `50`, `75`)
+- `PIC`.
+- `Owner`.
+- `PIC Owner`.
+- `Application Owner`.
 
-#### Contoh Nilai Threshold:
+Sebaiknya file PIC memiliki `vCenter` dan `UUID` agar mapping lintas-vCenter lebih aman. Jika UUID tidak tersedia, sistem menggunakan `vCenter + Name` sebagai fallback. Mapping yang tidak dapat dipastikan identity-nya akan ditolak agar PIC tidak salah dipasang ke VM lain.
 
-| Metrik | Nilai Sangat Rendah | Nilai Rendah | Nilai Moderat |
-|--------|---------------------|--------------|---------------|
-| CPU P95 (%) | 0.3 - 0.5 | 0.6 - 1.0 | 1.1 - 2.0 |
-| IOPS P95 | 0.5 - 1.5 | 1.6 - 3.0 | 3.1 - 5.0 |
-| Throughput P95 (KBps) | 0.05 - 0.10 | 0.11 - 0.20 | 0.21 - 0.50 |
-| Network P95 (KBps) | 20 - 30 | 31 - 60 | 61 - 100 |
-
-💡 **Tips:** VM production normal biasanya CPU > 5%, IOPS > 50, Throughput > 1.0 KBps.
+Klik tombol **"Ekstrak & Simpan PIC ke Database"** untuk menyimpan mapping secara persisten.
 
 ---
 
-### 🔌 Independensi Threshold VM Aktif vs VM Mati
+### 🎯 Threshold Preset — VM Powered On
 
-Sistem ini memisahkan analisis VM menjadi dua kategori:
+Threshold preset digunakan untuk analisis VM aktif atau `Powered On`.
 
-#### 1. VM Aktif (Powered On) — Analisis Zombie
-- **Threshold:** CPU, IOPS, Throughput, Network P95
-- **Kriteria:** Semua threshold harus terpenuhi (AND logic)
-- **Contoh:** VM dengan CPU rendah, IOPS rendah, Throughput rendah → Kandidat Zombie
+#### 1. Ultra Konservatif
 
-#### 2. VM Mati (Powered Off) — Analisis Disposal
-- **Threshold:** Days Powered Off (> 30 hari default)
-- **Kriteria:** Hanya durasi mati yang diperhitungkan
-- **Contoh:** VM yang sudah mati > 30 hari → Kandidat Disposal
+- CPU P95: ≤ 0.5%.
+- IOPS P95: ≤ 1.5.
+- Throughput P95: ≤ 0.07 KBps.
+- Network P95: ≤ 30 KBps.
+- Cocok untuk production critical dan sistem dengan toleransi false positive sangat rendah.
 
-#### ⚠️ PENTING: Kedua threshold INDEPENDEN!
+#### 2. Konservatif — Rekomendasi ⭐
 
-- Memilih preset "Konservatif" → Hanya mempengaruhi threshold Zombie VM (Aktif)
-- Ambang Days Powered Off → **TETAP AKTIF**, tidak terpengaruh preset
-- Anda bisa set Days Powered Off = 45 hari terlepas dari preset yang dipilih
+- CPU P95: ≤ 0.8%.
+- IOPS P95: ≤ 2.0.
+- Throughput P95: ≤ 0.10 KBps.
+- Network P95: ≤ 50 KBps.
+- Cocok sebagai titik awal untuk lingkungan production.
 
-**Mengapa dipisah?**
-- VM Aktif idle → Butuh validasi metrik (CPU, IOPS, dll)
-- VM Mati lama → Hanya butuh validasi durasi (Days Powered Off)
-- Kriteria berbeda, tujuan berbeda, threshold berbeda
+#### 3. Moderat
 
----
+- CPU P95: ≤ 1.5%.
+- IOPS P95: ≤ 3.0.
+- Throughput P95: ≤ 0.15 KBps.
+- Network P95: ≤ 75 KBps.
+- Cocok untuk development, testing, dan non-critical.
 
-### 📋 Manajemen Status Housekeeping (HK) & PIC
+#### 4. Agresif
 
-Aplikasi ini melacak pembaruan PIC dan Status HK (Housekeeping) secara persisten di dalam *database* lokal, sehingga data tidak hilang meskipun halaman di-refresh.
+- CPU P95: ≤ 2.5%.
+- IOPS P95: ≤ 5.0.
+- Throughput P95: ≤ 0.25 KBps.
+- Network P95: ≤ 100 KBps.
+- Gunakan dengan validasi manual lebih ketat.
 
-1. **Update Langsung di Tabel:** Anda dapat mengklik tabel utama untuk mengubah nama `PIC Owner`, `Status HK`, dan `Catatan`. Klik tombol **"Simpan Perubahan"** untuk mengunci data ke database.
-2. **Pengecualian Status "Rejected":** Jika PIC memberikan konfirmasi bahwa VM tidak boleh dimatikan (masih terpakai/critical), ubah statusnya menjadi **Rejected**. Sistem akan **otomatis mengeluarkan** VM ini dari hitungan *"Kandidat Zombie"* di bulan/periode berikutnya untuk mencegah notifikasi berulang (*alert fatigue*).
-3. **Bagaimana dengan Status "Approved"?:** VM yang disetujui (Approved) untuk dimatikan **tetap akan muncul** di dashboard sebagai "Kandidat Zombie" sebagai *reminder* untuk tim eksekutor. VM ini baru akan hilang setelah benar-benar dimatikan dan terdeteksi di file **CSV Power Off**.
-
----
-
-### ✅ Sanity Check — Validasi Hasil Analisis
-
-Setelah menjalankan analisis, lakukan validasi berikut:
-
-#### 1. Cek Persentase VM Terdeteksi
-
-**Jika hasil terlalu banyak (> 50%):**
-- Threshold terlalu longgar (terlalu tinggi)
-- Turunkan threshold (mis. CPU dari 1.5 → 0.8)
-- Atau pilih preset yang lebih konservatif
-- Filter Tag Kritikalitas (exclude C_01_Critical)
-
-**Jika hasil terlalu sedikit (< 2%):**
-- Threshold terlalu ketat (terlalu rendah)
-- VM memang produktif semua
-- Naikkan threshold (mis. CPU dari 0.5 → 0.8)
-- Atau pilih preset yang lebih agresif
-
-**Range normal:** 5-30% VM terdeteksi (tergantung environment)
-
-#### 2. Sample Manual 10-20 VM
-
-Ambil 10-20 VM secara acak dari hasil, lalu validasi:
-
-**Checklist Validasi:**
-- [ ] CPU P95 benar-benar rendah (< threshold)?
-- [ ] IOPS P95 benar-benar rendah (< threshold)?
-- [ ] Throughput P95 benar-benar rendah (< threshold)?
-- [ ] VM memang tidak produktif (cek aplikasi, owner, tag)?
-- [ ] Bukan VM critical/production?
-
-**Jika > 20% false positive:**
-- Turunkan threshold (lebih konservatif)
-- Atau tambahkan filter Tag Kritikalitas
-
-#### 3. Cross-Check dengan Owner/Requestor
-
-Kirim list VM ke owner/requestor untuk konfirmasi:
-
-**Pertanyaan Kunci:**
-- "Apakah VM ini masih digunakan?"
-- "Apakah ada aplikasi critical di VM ini?"
-- "Apakah aman untuk di-decommission?"
-
-**Jika banyak penolakan:**
-- Threshold terlalu agresif → pilih yang lebih konservatif
-- Atau tambahkan filter Tag Kritikalitas (exclude C_01_Critical)
-
-#### 4. Monitoring Trend Idle
-
-Gunakan fitur "Trend Idle" untuk cek konsistensi:
-
-- VM zombie sejati → Idle konsisten > 3 periode
-- VM idle temporer → Idle hanya 1-2 periode (skip!)
-
-💡 **Tips:** Jangan decommission VM hanya berdasarkan 1 snapshot! Cek trend minimal 3 periode.
+Semua metrik harus memenuhi threshold secara bersamaan (*AND logic*). Aplikasi tidak menambahkan syarat baru berupa `Skor Idle >= 75`.
 
 ---
 
-### 🐞 Troubleshooting — Hasil Tidak Sesuai Ekspektasi
+### 🔌 Independensi VM Aktif dan VM Mati
 
-#### Problem: VM Terdeteksi Terlalu Banyak (> 50%)
+#### VM Powered On — Kandidat Zombie
 
-**Kemungkinan Penyebab:**
-- Threshold terlalu longgar (terlalu tinggi)
-- Data CSV periode terlalu panjang (90+ hari)
-- Mayoritas VM memang underutilized
+VM Powered On dianalisis menggunakan:
 
-**Solusi:**
-1. Pilih preset "Ultra Konservatif" atau "Konservatif"
-2. Pastikan periode P95 = 30 hari (bukan 90+)
-3. Filter Tag Kritikalitas (exclude C_01_Critical)
-4. Validasi manual 10-20 VM — berapa % false positive?
+- CPU P95.
+- IOPS P95.
+- Throughput P95.
+- Network P95.
+- Status Idle untuk perhitungan skor.
 
-#### Problem: VM Terdeteksi Terlalu Sedikit (< 2%)
+VM Powered On dengan metrik di bawah seluruh threshold dapat diberi label `Kandidat Zombie`.
 
-**Kemungkinan Penyebab:**
-- Threshold terlalu ketat (terlalu rendah)
-- VM memang produktif semua
-- Data CSV periode terlalu pendek (< 14 hari)
+#### VM Powered Off — Kandidat Disposal
 
-**Solusi:**
-1. Pilih preset "Moderat" atau "Agresif"
-2. Pastikan periode P95 = 30 hari
-3. Cek distribusi metrik — berapa P25, P50, P75?
-4. Gunakan script `tools/analyze_distribution_detailed.py` untuk insight
+VM Powered Off tidak dianalisis menggunakan scoring zombie. VM dievaluasi berdasarkan:
 
-#### Problem: VM Critical Terdeteksi sebagai Zombie
+```text
+Days Powered Off > Ambang Days Powered Off
+```
 
-**Kemungkinan Penyebab:**
-- Tidak ada filter Tag Kritikalitas
-- Threshold terlalu agresif
+Jika memenuhi aturan, VM diberi label `Kandidat Disposal`.
 
-**Solusi:**
-1. Filter Tag Kritikalitas → Exclude "C_01_Critical", "C_02_Very High"
-2. Pilih preset "Ultra Konservatif"
-3. Tambahkan validasi manual wajib untuk semua VM
+Threshold Zombie dan threshold Disposal bersifat independen. Mengubah preset Zombie tidak mengubah ambang Days Powered Off.
 
-#### Problem: Error "All numerical arguments must be of the same type"
+---
 
-**Kemungkinan Penyebab:**
-- Bug lama (sudah fixed di versi terbaru)
+### 📈 Analisis Tren Observasi Aktual
 
-**Solusi:**
-1. Update ke versi terbaru (git pull)
-2. Restart Streamlit (Ctrl+C, lalu streamlit run app/main.py)
-3. Clear browser cache (Ctrl+Shift+Delete)
+Trend dihitung berdasarkan observasi yang benar-benar direkam oleh aplikasi.
+
+- Setiap eksekusi analisis pada tanggal tertentu menghasilkan satu observasi.
+- Tanggal yang tidak dianalisis tidak dibuat sebagai record.
+- Interval antaranalisis boleh tidak beraturan.
+- Sistem tidak mengisi tanggal kosong dengan nilai buatan.
+- Minimum observasi default adalah 3 observasi kandidat berturut-turut.
+- Streak dihitung berdasarkan Identity Key.
+- Rename VM tidak memutus histori jika Identity Key tetap sama.
+- UUID dan vCenter tersedia pada export trend untuk audit.
+
+Jalankan analisis pada tanggal observasi baru agar histori trend bertambah. Menjalankan ulang tanggal yang sama melakukan update pada snapshot tanggal tersebut, bukan menambah observasi baru.
+
+---
+
+### 📋 Manajemen Status HK dan PIC
+
+Status HK dan PIC disimpan dalam database lokal berdasarkan Identity Key.
+
+Status yang tersedia:
+
+- `Need Confirm` — Belum ada konfirmasi final.
+- `Approved` — VM dikonfirmasi tidak digunakan dan disetujui untuk proses berikutnya.
+- `Rejected` — VM dikonfirmasi masih digunakan atau tidak boleh diproses.
+- `No Feedback` — Belum ada respons dari PIC.
+
+`Approved` tidak berarti aplikasi menghapus VM. Status tersebut hanya menjadi evidence dan reminder untuk proses eksekusi yang dilakukan oleh tim berwenang.
+
+`Rejected` mencegah Kandidat Zombie ditampilkan kembali pada eksekusi analisis berikutnya selama identity dan statusnya tetap sama.
+
+---
+
+### ✅ Sanity Check
+
+Setelah analisis selesai, periksa:
+
+- Total VM master dibandingkan jumlah VM setelah filter State.
+- Jumlah VM setelah filter Uptime dan Tag.
+- Jumlah Kandidat Zombie.
+- Jumlah Kandidat Disposal.
+- Kegagalan parsing numerik.
+- vCenter dan Identity Key pada Mode Debug jika diperlukan.
+
+Lakukan sampling manual 10–20 VM kandidat dan cek:
+
+- CPU P95.
+- IOPS P95.
+- Throughput P95.
+- Network P95.
+- Status aplikasi dan criticality tag.
+- Konfirmasi penggunaan kepada PIC atau owner.
+
+Jangan mengambil keputusan decommission hanya berdasarkan satu snapshot atau satu hasil screening.
+
+---
+
+### 🐞 Troubleshooting
+
+#### CSV Metrik gagal karena vCenter
+
+Pastikan CSV dari dashboard vROps **"Lembar Kerja"** memiliki kolom `vCenter`.
+
+#### CSV Power Off gagal karena vCenter
+
+Pastikan CSV dari dashboard vROps **"Status Power off"** memiliki salah satu kolom:
+
+- `vCenter`.
+- `Parent vCenter`.
+- `Summary|Parent vCenter`.
+
+#### VM Power On tanpa UUID
+
+VM Power On wajib memiliki UUID. Periksa kembali hasil export vROps dan jangan mengganti UUID dengan Name secara manual.
+
+#### Identity Key duplikat
+
+Periksa apakah file master terunggah lebih dari satu kali atau terdapat dua baris VM yang sama dengan metrik berbeda.
+
+#### Tidak ada Kandidat Zombie
+
+Periksa threshold, kualitas metrik, filter State, filter Uptime, filter Tag, dan apakah Network P95 menyebabkan VM gagal pada AND logic.
+
+#### Tidak ada tabel Trend
+
+Trend hanya menampilkan tabel jika terdapat minimal jumlah observasi kandidat berturut-turut sesuai kontrol `Min. Observasi Kandidat Berturut-turut`. Tanggal yang tidak dianalisis tidak dihitung sebagai observasi negatif.
+
+#### UUID tidak terlihat di tabel
+
+UUID sengaja disembunyikan dari tabel utama dan tabel trend agar UI lebih ringkas. UUID tetap disimpan secara internal dan tersedia di file export Excel.
 
 ---
 
 ### 📋 Langkah-Langkah Analisis
 
-1. **Upload Data** — Upload CSV Metrik (wajib). Opsional: Upload CSV Power Off dan Data PIC/Owner. (Khusus file PIC, tekan tombol "Ekstrak & Simpan PIC" agar tersimpan permanen ke database referensi).
-2. **Set Filter dan Threshold** — Pilih status VM, preset threshold, dan filter Tag di *Sidebar* kiri.
-3. **Jalankan Analisis** — Sistem otomatis memproses data (atau klik tombol "🔍 Analisa VM Zombie" jika ada).
-4. **Review & Simpan HK** — Tinjau hasil analisis di tabel utama. Jika Anda sudah berkoordinasi dengan PIC, edit kolom `PIC Owner` / `Status HK` / `Catatan` langsung di tabel, lalu klik tombol **💾 Simpan Perubahan**.
-5. **Export Master VM** — Klik tombol "📥 Download Excel Master VM" untuk menarik seluruh hasil analisa bulan ini.
-6. **Analisis Tren** — Gulir ke bawah untuk memantau VM mana saja yang konsisten "Idle" selama berbulan-bulan. Anda juga bisa mengekspornya melalui tombol **📥 Download Data Tren (Excel)**.
+1. Ambil CSV Metrik VM dari dashboard vROps **"Lembar Kerja"**.
+2. Pastikan CSV Metrik VM berisi seluruh VM, termasuk Powered On dan Powered Off.
+3. Ambil CSV Power Off dari dashboard vROps **"Status Power off"**.
+4. Upload CSV Metrik VM sebagai file master.
+5. Upload CSV Power Off sebagai enrichment jika analisis disposal diperlukan.
+6. Upload data PIC/Owner jika diperlukan.
+7. Pilih State, filter Uptime, filter Tag, dan threshold pada sidebar.
+8. Review Kandidat Zombie dan Kandidat Disposal.
+9. Isi PIC Owner, Status HK, dan Catatan jika sudah ada hasil koordinasi.
+10. Klik **Simpan Perubahan** untuk menyimpan status ke database.
+11. Gunakan **Download Excel Master VM** untuk mengekspor kandidat aktif saja, yaitu Kandidat Zombie dan Kandidat Disposal.
+12. Jalankan analisis pada tanggal observasi berikutnya untuk membangun trend observasi aktual.
+13. Gunakan **Download Data Trend (Excel)** untuk mengekspor VM yang memenuhi streak observasi.
 
 ---
 
 ### ℹ️ FAQ
 
-**Q: Berapa periode P95 yang ideal?**
-**A:** 30 hari (rolling window). Ini mencakup variasi beban kerja bulanan tanpa terlalu panjang.
+**Q: Apakah aplikasi menghapus VM otomatis?**
 
-**Q: Apakah semua VM harus dianalisis?**
-**A:** Tidak. Exclude VM critical (C_01_Critical), DR, atau compliance requirement.
+**A:** Tidak. Aplikasi hanya melakukan screening dan menyediakan evidence. Keputusan dan eksekusi tetap dilakukan user/PIC/tim berwenang.
 
-**Q: Kenapa status HK / PIC kosong di tabel Tren?**
-**A:** Itu adalah rekaman (snapshot) lama sebelum fitur PIC/HK dirilis. Begitu Anda melakukan siklus analisis hari ini, data terbaru akan otomatis menambal kekosongan tersebut.
+**Q: Dari mana CSV Metrik VM harus diambil?**
 
-**Q: Bagaimana jika hasil analisis berbeda dengan ekspektasi?**
-**A:** Lakukan sanity check (lihat section di atas). Adjust threshold atau filter sesuai kebutuhan.
+**A:** Dari dashboard vROps **"Lembar Kerja"**.
 
-**Q: Apakah threshold ini fixed?**
-**A:** Tidak. Anda bisa set manual atau pilih preset. Threshold default adalah rekomendasi, bukan aturan baku.
+**Q: Dari mana CSV Power Off harus diambil?**
 
-**Q: Berapa lama proses analisis?**
-**A:** Tergantung jumlah VM. Untuk 3000 VM, biasanya < 1 menit.
+**A:** Dari dashboard vROps **"Status Power off"**.
+
+**Q: Apakah CSV Power Off menggantikan CSV Metrik VM?**
+
+**A:** Tidak. CSV Power Off hanya enrichment untuk Days Powered Off. Master tetap berasal dari CSV Metrik VM.
+
+**Q: Apakah UUID harus terlihat di tabel?**
+
+**A:** Tidak. UUID disembunyikan dari UI, tetapi tetap ada di export Excel dan database untuk audit serta identity.
+
+**Q: Berapa observasi yang diperlukan untuk trend?**
+
+**A:** Default-nya 3 observasi kandidat berturut-turut. Observasi berarti eksekusi analisis yang benar-benar tercatat, bukan tanggal kalender yang diasumsikan.
+
+**Q: Apakah threshold bersifat fixed?**
+
+**A:** Tidak. Threshold dapat dipilih melalui preset atau diatur manual. Formula scoring dan bobot tetap mengikuti konfigurasi aplikasi.
+
+**Q: Apa arti Approved?**
+
+**A:** Approved berarti VM dikonfirmasi tidak digunakan dan dapat diteruskan ke proses eksekusi sesuai prosedur. Approved bukan instruksi delete otomatis.
+
+**Q: Apa arti Rejected?**
+
+**A:** Rejected berarti VM dikonfirmasi masih digunakan atau tidak boleh diproses. Status ini mencegah kandidat zombie yang sama muncul kembali pada eksekusi berikutnya.
 
 ---
 
-### 📞 Kontak & Support
+### 📞 Kontak dan Support
 
 Jika ada pertanyaan atau issue, hubungi tim Surrounding Compute Recovery Operation (SCR).
 
 **Versi:** v4.0
-**Last Update:** 18 Sep 2026
+**Last Update:** 24 Sep 2026 — penyelarasan sumber data vROps, Identity Key, trend observasi aktual, parser, dan UI.
 """
 
 
