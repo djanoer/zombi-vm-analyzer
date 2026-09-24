@@ -16,8 +16,10 @@
 # ==============================================================================
 
 
+# UAT-06 (Fase 6): "UUID" wajib ada agar CSV tanpa kolom UUID mendapat
+# pesan error yang jelas (bukan KeyError mentah di build_identity_key).
 REQUIRED_COLUMNS_BASE = [
-    "Name", "vCenter", "State", "Uptime / Days", "Summary|vSphere Tag",
+    "Name", "vCenter", "UUID", "State", "Uptime / Days", "Summary|vSphere Tag",
     "CPU Percentile 95%", "IOPS Percentile 95%",
     "Throughput Percentile 95%",
     "Network I/O | Usage Rate (KBps) - 95th Percentile", "Status Idle",
