@@ -414,6 +414,26 @@ def resolve_memory_column(dataframe):
     )
 
 
+# D-1: kolom metrik kritis untuk gating kandidat zombie. Jika salah satunya
+# hilang pada suatu baris, "Kualitas Data" ditandai "Metrik Tidak Lengkap".
+_METRIC_CRITICAL_COLUMNS = [
+    "CPU Percentile 95%",
+    "IOPS Percentile 95%",
+    "Throughput Percentile 95%",
+    "Network I/O | Usage Rate (KBps) - 95th Percentile",
+]
+
+# Token yang dianggap "data hilang" -- konsisten dengan parse_numeric_verbose
+# di parsers.py yang memparse nilai-nilai ini menjadi 0.0.
+_METRIC_MISSING_TOKENS = {"", "-", "nan", "none", "null", "<na>"}
+
+
+def _is_metric_missing(series):
+    """True untuk nilai hilang: NA atau token null ('-', 'nan', 'none', ...)."""
+    return series.isna() | (
+        series.astype(str).str.strip().str.lower().isin(_METRIC_MISSING_TOKENS)
+    )
+
 
 def flag_data_quality(dataframe):
     dataframe = dataframe.copy()
@@ -430,6 +450,22 @@ def flag_data_quality(dataframe):
         mask,
         "Kualitas Data",
     ] = "Tidak Diketahui"
+
+    # D-1: tandai metrik kritis yang hilang sebagai "Metrik Tidak Lengkap".
+    # Hanya untuk baris yang masih "Lengkap" -- nilai "Tidak Diketahui"
+    # dipertahankan apa adanya karena dipakai logika filter uptime di main.py.
+    # Kandidat TETAP tampil dan diverifikasi manual; flag ini hanya menandai
+    # noise data (nilai hilang diparse menjadi 0.0 oleh parse_numeric_verbose).
+    for column in _METRIC_CRITICAL_COLUMNS:
+        if column not in dataframe.columns:
+            continue
+        missing_mask = _is_metric_missing(
+            dataframe[column]
+        ) & dataframe["Kualitas Data"].eq("Lengkap")
+        dataframe.loc[
+            missing_mask,
+            "Kualitas Data",
+        ] = "Metrik Tidak Lengkap"
 
     return dataframe
 
