@@ -4,6 +4,13 @@
 """
 Module untuk tracking status housekeeping (HK) VM dan PIC Owner.
 
+PATCH NOTES (25 Sep 2026):
+- Fase 2 (FEAT-05, Opsi B): deteksi VM pindah vCenter via UUID
+  (detect_vcenter_moves), pemindahan histori atomik lintas dua database
+  via ATTACH DATABASE (apply_identity_move), dan tabel audit baru
+  vm_identity_moves (siapa, kapan, UUID, VC lama -> VC baru).
+  Konflik (UUID muncul di 2+ vCenter dalam satu upload) tidak ditawarkan.
+
 PATCH NOTES (21 Sep 2026):
 - Identity utama BERUBAH dari UUID+Name menjadi Identity Key
   (vCenter + UUID, fallback vCenter + Name) via app/identity_utils.py.
@@ -37,6 +44,7 @@ import streamlit as st
 
 from app_config import (
     STATUS_DATABASE_PATH,
+    TREND_DATABASE_PATH,
     ensure_data_directory,
 )
 from identity_utils import (
@@ -262,12 +270,32 @@ def _migrate_legacy_schema_if_needed(cursor):
     _create_new_schema(cursor)
 
 
+def _create_audit_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vm_identity_moves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT NOT NULL,
+            vm_name TEXT NOT NULL DEFAULT '',
+            old_identity_key TEXT NOT NULL,
+            new_identity_key TEXT NOT NULL,
+            old_vcenter TEXT NOT NULL DEFAULT '',
+            new_vcenter TEXT NOT NULL DEFAULT '',
+            moved_by TEXT NOT NULL DEFAULT '',
+            moved_at TIMESTAMP,
+            notes TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
 def initialize_db():
     connection = get_db_connection()
 
     try:
         cursor = connection.cursor()
         _migrate_legacy_schema_if_needed(cursor)
+        _create_audit_table(cursor)
         connection.commit()
     finally:
         connection.close()
@@ -707,3 +735,330 @@ def bulk_save_pic_mapping(pic_dataframe, updated_by):
         connection.close()
 
     return len(updates)
+
+
+def _canonical_move_identity_key(vcenter, uuid):
+    """
+    Bangun Identity Key kanonis (all-lowercase, format vc01::uuid) untuk
+    keperluan deteksi dan pemindahan VM antar vCenter.
+    """
+    return f"{normalize_vcenter(vcenter).lower()}::{normalize_uuid(uuid)}"
+
+
+def _db_uuid_vcenters(cursor):
+    """
+    Petakan uuid -> himpunan vCenter yang tercatat di database status/PIC.
+    """
+    result = {}
+
+    for table in ("vm_status", "vm_pic_mapping"):
+        if not _table_exists(cursor, table):
+            continue
+        columns = _get_columns(cursor, table)
+        if not {"uuid", "vcenter"} <= columns:
+            continue
+        for uuid_value, vcenter_value in cursor.execute(
+            f"SELECT uuid, vcenter FROM {table}"
+        ):
+            uuid_norm = normalize_uuid(uuid_value)
+            vcenter_norm = normalize_vcenter(vcenter_value)
+            if not uuid_norm or not vcenter_norm:
+                continue
+            result.setdefault(uuid_norm, set()).add(vcenter_norm)
+
+    return result
+
+
+def detect_vcenter_moves(dataframe):
+    """
+    Deteksi kandidat VM yang pindah vCenter.
+
+    Membandingkan UUID pada dataframe aktif dengan UUID yang tersimpan di
+    database (vm_status, vm_pic_mapping, vm_trend_history). Kandidat adalah
+    UUID yang di database tercatat pada vCenter lama, tetapi pada data aktif
+    HANYA muncul pada vCenter baru yang berbeda.
+
+    Aturan konflik: UUID yang dalam SATU upload muncul pada dua vCenter atau
+    lebih dianggap konflik dan TIDAK ditawarkan sebagai perpindahan.
+
+    Mengembalikan list of dict dengan kunci: uuid, vm_name, old_vcenter,
+    new_vcenter, old_identity_key, new_identity_key, status_hk, pic_owner,
+    trend_count, name_changed.
+    """
+    initialize_db()
+
+    required = {"Identity Key", "UUID", "vCenter", "Name"}
+    if (
+        dataframe is None
+        or dataframe.empty
+        or not required <= set(dataframe.columns)
+    ):
+        return []
+
+    current_vcenters = {}
+    current_names = {}
+    for _, row in dataframe.iterrows():
+        uuid_norm = normalize_uuid(row.get("UUID"))
+        vcenter_norm = normalize_vcenter(row.get("vCenter"))
+        if not uuid_norm or not vcenter_norm:
+            continue
+        current_vcenters.setdefault(uuid_norm, set()).add(vcenter_norm)
+        name_value = row.get("Name")
+        current_names[uuid_norm] = (
+            "" if name_value is None or pd.isna(name_value)
+            else str(name_value).strip()
+        )
+
+    # UUID konflik (muncul di 2+ vCenter dalam satu upload) tidak ditawarkan.
+    conflict_uuids = {
+        uuid_norm
+        for uuid_norm, vcenters in current_vcenters.items()
+        if len(vcenters) > 1
+    }
+
+    connection = get_db_connection()
+    try:
+        cursor = connection.cursor()
+        db_vcenters = _db_uuid_vcenters(cursor)
+
+        summaries = {}
+        for table, label in (
+            ("vm_status", "status"),
+            ("vm_pic_mapping", "pic"),
+        ):
+            if not _table_exists(cursor, table):
+                continue
+            columns = _get_columns(cursor, table)
+            for uuid_value, vcenter_value, name_value, extra in cursor.execute(
+                f"SELECT uuid, vcenter, name, "
+                f"{'status' if label == 'status' else 'pic_owner'} "
+                f"FROM {table}"
+            ):
+                uuid_norm = normalize_uuid(uuid_value)
+                if not uuid_norm or uuid_norm in summaries.setdefault(label, {}):
+                    continue
+                summaries[label][uuid_norm] = {
+                    "vcenter": normalize_vcenter(vcenter_value),
+                    "name": "" if name_value is None else str(name_value),
+                    "value": "" if extra is None else str(extra),
+                }
+
+        trend_counts = {}
+        try:
+            trend_connection = sqlite3.connect(
+                str(TREND_DATABASE_PATH),
+                detect_types=(
+                    sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+                ),
+            )
+            try:
+                trend_cursor = trend_connection.cursor()
+                if _table_exists(trend_cursor, "vm_trend_history"):
+                    for key_value, total in trend_cursor.execute(
+                        """
+                        SELECT LOWER(identity_key), COUNT(*)
+                        FROM vm_trend_history
+                        GROUP BY LOWER(identity_key)
+                        """
+                    ):
+                        if key_value:
+                            trend_counts[key_value] = total
+            finally:
+                trend_connection.close()
+        except sqlite3.Error:
+            trend_counts = {}
+    finally:
+        connection.close()
+
+    candidates = []
+    for uuid_norm, vcenters in current_vcenters.items():
+        if uuid_norm in conflict_uuids:
+            continue
+        new_vcenter = next(iter(vcenters))
+        old_vcenters = {
+            vc for vc in db_vcenters.get(uuid_norm, set())
+            if vc != new_vcenter
+        }
+        # Ambigu (riwayat di 2+ vCenter lama): lewati, jangan ditawarkan.
+        if len(old_vcenters) != 1:
+            continue
+        old_vcenter = next(iter(old_vcenters))
+
+        old_key = _canonical_move_identity_key(old_vcenter, uuid_norm)
+        new_key = _canonical_move_identity_key(new_vcenter, uuid_norm)
+        status_info = summaries.get("status", {}).get(uuid_norm, {})
+        pic_info = summaries.get("pic", {}).get(uuid_norm, {})
+        old_name = status_info.get("name") or pic_info.get("name") or ""
+        new_name = current_names.get(uuid_norm, "")
+
+        candidates.append(
+            {
+                "uuid": uuid_norm,
+                "vm_name": new_name or old_name,
+                "old_vcenter": old_vcenter,
+                "new_vcenter": new_vcenter,
+                "old_identity_key": old_key,
+                "new_identity_key": new_key,
+                "status_hk": status_info.get("value", ""),
+                "pic_owner": pic_info.get("value", ""),
+                "trend_count": trend_counts.get(old_key, 0),
+                "name_changed": (
+                    bool(old_name)
+                    and old_name.strip().lower() != new_name.strip().lower()
+                ),
+            }
+        )
+
+    return candidates
+
+
+def _timestamp_newer(first, second):
+    """
+    True jika timestamp `first` lebih baru dari `second`.
+
+    Timestamp disimpan sebagai string "YYYY-MM-DD HH:MM:SS.ffffff" sehingga
+    perbandingan string valid. None dianggap paling lama.
+    """
+    if first is None:
+        return False
+    if second is None:
+        return True
+    return str(first) > str(second)
+
+
+def _move_identity_row(cursor, table, time_column, old_key, new_key,
+                       new_vcenter, new_name):
+    """
+    Pindahkan satu baris identitas ke Identity Key baru.
+
+    Jika Identity Key baru sudah memiliki baris, baris dengan timestamp
+    terbaru yang dipertahankan (konflik merge).
+    """
+    columns = _get_columns(cursor, table)
+    if "identity_key" not in columns:
+        return
+
+    old_row = cursor.execute(
+        "SELECT identity_key, vcenter, uuid, name, "
+        f"{time_column} FROM {table} WHERE LOWER(identity_key) = LOWER(?)",
+        (old_key,),
+    ).fetchone()
+    if old_row is None:
+        return
+
+    new_row = cursor.execute(
+        f"SELECT {time_column} FROM {table} "
+        "WHERE LOWER(identity_key) = LOWER(?)",
+        (new_key,),
+    ).fetchone()
+
+    if new_row is None:
+        cursor.execute(
+            f"UPDATE {table} SET identity_key = ?, vcenter = ?, name = ? "
+            "WHERE LOWER(identity_key) = LOWER(?)",
+            (new_key, new_vcenter, new_name, old_key),
+        )
+        return
+
+    # Konflik: timestamp terbaru menang.
+    if _timestamp_newer(old_row[4], new_row[0]):
+        cursor.execute(
+            f"DELETE FROM {table} WHERE LOWER(identity_key) = LOWER(?)",
+            (new_key,),
+        )
+        cursor.execute(
+            f"UPDATE {table} SET identity_key = ?, vcenter = ?, name = ? "
+            "WHERE LOWER(identity_key) = LOWER(?)",
+            (new_key, new_vcenter, new_name, old_key),
+        )
+    else:
+        cursor.execute(
+            f"DELETE FROM {table} WHERE LOWER(identity_key) = LOWER(?)",
+            (old_key,),
+        )
+
+
+def apply_identity_move(candidate, moved_by):
+    """
+    Pindahkan histori VM ke Identity Key baru dalam SATU transaksi atomik.
+
+    Menggunakan ATTACH DATABASE sehingga operasi lintas dua file SQLite
+    (status_tracking.db dan trend_history.db) berhasil semua atau batal
+    semua -- tidak ada state setengah jadi.
+
+    Urutan: trend -> vm_status + vm_pic_mapping -> audit. Mengembalikan True
+    jika berhasil, False jika gagal (pesan error ditampilkan ke user).
+    """
+    initialize_db()
+
+    old_key = candidate["old_identity_key"]
+    new_key = candidate["new_identity_key"]
+    new_vcenter = candidate["new_vcenter"]
+    new_name = candidate["vm_name"]
+    moved_by = "" if moved_by is None else str(moved_by).strip()
+
+    connection = get_db_connection()
+    try:
+        cursor = connection.cursor()
+        trend_path = str(TREND_DATABASE_PATH).replace("'", "''")
+        cursor.execute(f"ATTACH DATABASE '{trend_path}' AS trend_db")
+
+        try:
+            cursor.execute("BEGIN")
+
+            cursor.execute(
+                """
+                UPDATE trend_db.vm_trend_history
+                SET identity_key = ?
+                WHERE LOWER(identity_key) = LOWER(?)
+                """,
+                (new_key, old_key),
+            )
+
+            _move_identity_row(
+                cursor, "vm_status", "updated_at",
+                old_key, new_key, new_vcenter, new_name,
+            )
+            _move_identity_row(
+                cursor, "vm_pic_mapping", "mapped_at",
+                old_key, new_key, new_vcenter, new_name,
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO vm_identity_moves (
+                    uuid, vm_name, old_identity_key, new_identity_key,
+                    old_vcenter, new_vcenter, moved_by, moved_at, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    candidate["uuid"],
+                    new_name,
+                    old_key,
+                    new_key,
+                    candidate["old_vcenter"],
+                    new_vcenter,
+                    moved_by,
+                    datetime.now(),
+                    "Opsi B: penautan histori VM pindah vCenter via konfirmasi UI.",
+                ),
+            )
+
+            cursor.execute("COMMIT")
+        except sqlite3.Error:
+            cursor.execute("ROLLBACK")
+            raise
+        finally:
+            cursor.execute("DETACH DATABASE trend_db")
+
+        return True
+
+    except sqlite3.Error as error:
+        st.error(
+            "❌ Gagal memindahkan histori VM. "
+            f"Penyebab: {error}. "
+            "Tidak ada data yang berubah; silakan coba lagi."
+        )
+        return False
+    finally:
+        connection.close()
