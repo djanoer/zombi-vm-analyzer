@@ -18,6 +18,11 @@
 #   VM Power On tanpa UUID DITOLAK karena tidak dapat diberi identity
 #   yang aman untuk analisis zombie.
 #
+# PATCH NOTES (25 Sep 2026):
+# - Fase 2 (FEAT-05, Opsi B): hook render_vcenter_move_section() setelah
+#   panel validasi -- expander konfirmasi penautan histori VM pindah
+#   vCenter, hanya muncul jika ada kandidat.
+#
 # PATCH NOTES (24 Sep 2026, final pass):
 # - BUG DIPERBAIKI: render_validation_section() sebelumnya menerima
 #   `filtered_vms` (sudah lolos filter State+Uptime+Tag) sebagai
@@ -98,6 +103,7 @@ from sidebar_controls import (
     render_user_identity,
 )
 from status_tracking import bulk_save_pic_mapping, merge_status_into_df
+from vcenter_move_view import render_vcenter_move_section
 from trend_analysis import record_period_snapshot
 from trend_view import render_trend_section
 
@@ -744,6 +750,11 @@ try:
         est_storage_gb,
         est_storage_tb,
     )
+
+    # Fase 2 (Opsi B): tawarkan penautan histori untuk VM yang terdeteksi
+    # pindah vCenter. Hanya muncul jika ada kandidat; tidak mengubah data
+    # tanpa klik eksplisit dari user.
+    render_vcenter_move_section(combined_candidates, updated_by)
 
     kandidat_only = combined_candidates[
         ~combined_candidates["Label"].isin(
