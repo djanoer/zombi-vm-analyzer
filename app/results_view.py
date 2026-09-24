@@ -20,6 +20,7 @@ import io
 import pandas as pd
 import streamlit as st
 
+from error_messages import user_error
 from identity_utils import invalid_identity_mask
 from status_tracking import (
     VALID_STATUSES,
@@ -442,13 +443,21 @@ def render_results_section(
     # Export memakai display_dataframe yang sudah dibersihkan.
     # Karena Catatan HK sudah dibuang oleh _prepare_user_facing_dataframe(),
     # kolom legacy tersebut tidak akan muncul di Excel.
-    buffer = io.BytesIO()
-
     file_name = (
         f"Master_VM_Analysis_{tanggal_proses}.xlsx"
         if tanggal_proses
         else "Master_VM_Analysis.xlsx"
     )
+    render_export_button(display_dataframe, file_name)
+
+
+def build_excel_bytes(display_dataframe):
+    """Bangun bytes file Excel dari dataframe.
+
+    Melempar Exception saat gagal (mis. openpyxl bermasalah) — penangkap
+    ada di render_export_button() agar aplikasi tidak crash (HARD-06).
+    """
+    buffer = io.BytesIO()
 
     with pd.ExcelWriter(
         buffer,
@@ -460,9 +469,31 @@ def render_results_section(
             sheet_name="Master VM Analysis",
         )
 
+    return buffer.getvalue()
+
+
+def render_export_button(display_dataframe, file_name):
+    """Tampilkan tombol download Excel.
+
+    HARD-06: kegagalan export menampilkan st.error berbahasa Indonesia
+    (bukan crash); user diberi tahu apa yang bisa dilakukan.
+    """
+    try:
+        excel_bytes = build_excel_bytes(display_dataframe)
+    except Exception as error:
+        st.error(
+            user_error(
+                "Gagal menyiapkan file Excel untuk diunduh",
+                f"kesalahan teknis ({error})",
+                "tutup file Excel hasil unduhan sebelumnya yang masih "
+                "terbuka, lalu coba lagi",
+            )
+        )
+        return
+
     st.download_button(
         label="📥 Download Excel Master VM",
-        data=buffer.getvalue(),
+        data=excel_bytes,
         file_name=file_name,
         mime=(
             "application/vnd.openxmlformats-officedocument."
