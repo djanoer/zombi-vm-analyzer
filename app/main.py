@@ -494,8 +494,9 @@ try:
     data_max_uptime = active_vms["Uptime / Days"].max()
     actual_max_uptime = max_uptime if max_uptime else data_max_uptime
 
+    # FIX-04: batas bawah INKLUSIF (>=) — VM tepat pada min_uptime tetap ikut.
     valid_uptime = (
-        (active_vms["Uptime / Days"] > min_uptime)
+        (active_vms["Uptime / Days"] >= min_uptime)
         & (active_vms["Uptime / Days"] <= actual_max_uptime)
     )
     unknown_uptime = active_vms["Kualitas Data"].eq("Tidak Diketahui")
