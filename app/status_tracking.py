@@ -47,6 +47,7 @@ from app_config import (
     TREND_DATABASE_PATH,
     ensure_data_directory,
 )
+from error_messages import user_error
 from identity_utils import (
     build_identity_key,
     build_legacy_identity_key,
@@ -297,6 +298,18 @@ def initialize_db():
         _migrate_legacy_schema_if_needed(cursor)
         _create_audit_table(cursor)
         connection.commit()
+    except sqlite3.Error as error:
+        # HARD-06: rollback agar tidak ada skema setengah tertulis.
+        connection.rollback()
+        st.error(
+            user_error(
+                "Gagal menyiapkan database status",
+                str(error),
+                "periksa folder data aplikasi bisa ditulis, "
+                "lalu muat ulang halaman",
+            )
+        )
+        raise
     finally:
         connection.close()
 
@@ -622,7 +635,16 @@ def save_status_updates(original_df, edited_df, updated_by):
 
     except sqlite3.Error as error:
         connection.rollback()
-        st.toast(f"Gagal menyimpan ke database: {error}", icon="🚨")
+        # HARD-06: kegagalan simpan memakai st.error (bukan toast) agar
+        # tidak terlewat; sebutkan tindakan yang bisa dilakukan user.
+        st.error(
+            user_error(
+                "Gagal menyimpan Status HK / PIC ke database",
+                str(error),
+                "tutup aplikasi lain yang mungkin mengunci database, "
+                "lalu coba simpan lagi",
+            )
+        )
         return 0
 
     finally:
@@ -728,7 +750,14 @@ def bulk_save_pic_mapping(pic_dataframe, updated_by):
 
     except sqlite3.Error as error:
         connection.rollback()
-        st.toast(f"Gagal bulk insert PIC: {error}", icon="🚨")
+        st.error(
+            user_error(
+                "Gagal menyimpan pemetaan PIC ke database",
+                str(error),
+                "tutup aplikasi lain yang mungkin mengunci database, "
+                "lalu coba lagi",
+            )
+        )
         return 0
 
     finally:

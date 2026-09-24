@@ -23,6 +23,7 @@ import sqlite3
 from pathlib import Path
 
 import pandas as pd
+import streamlit as st
 
 from app_config import (
     TREND_DATABASE_PATH,
@@ -34,6 +35,7 @@ from constants import (
     TREND_METRIC_WINDOW_DEFAULT,
     TREND_SNAPSHOT_SOURCE_DEFAULT,
 )
+from error_messages import user_error
 
 
 LEGACY_DB_PATH = (
@@ -250,6 +252,19 @@ def init_db(db_path=TREND_DATABASE_PATH):
         )
 
         connection.commit()
+
+    except sqlite3.Error as error:
+        # HARD-06: rollback agar tidak ada skema setengah tertulis.
+        connection.rollback()
+        st.error(
+            user_error(
+                "Gagal menyiapkan database riwayat trend",
+                str(error),
+                "periksa folder data aplikasi bisa ditulis, "
+                "lalu muat ulang halaman",
+            )
+        )
+        raise
 
     finally:
         connection.close()
