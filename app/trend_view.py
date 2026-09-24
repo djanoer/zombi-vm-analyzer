@@ -24,6 +24,7 @@ from trend_analysis import (
     compute_consistent_idle_vms,
     count_recorded_observations,
 )
+from error_messages import user_error
 
 
 
@@ -71,8 +72,12 @@ def render_trend_section(
         )
     else:
         st.error(
-            f"❌ Gagal merekam observasi ini: "
-            f"{record_error}. Histori trend mungkin belum lengkap."
+            user_error(
+                f"Gagal merekam observasi {tanggal_proses} ke riwayat trend",
+                record_error,
+                "coba ulangi; histori trend mungkin belum lengkap "
+                "untuk tanggal ini",
+            )
         )
 
     total_observations = count_recorded_observations()

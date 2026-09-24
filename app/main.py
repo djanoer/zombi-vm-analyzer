@@ -79,6 +79,7 @@ from debug_view import (
     render_raw_data_debug,
 )
 from disposal_rules import merge_disposal_and_zombie
+from error_messages import user_error
 from filter_settings import load_filter_settings
 from identity_utils import (
     build_identity_key,
@@ -365,7 +366,14 @@ failed_metric_files = []
 if metric_files:
     raw_dataframe, failed_metric_files, _ = load_and_merge_uploads(metric_files)
     for filename, error in failed_metric_files:
-        st.error(f"❌ Gagal memproses file metrik **{filename}**: {error}")
+        st.error(
+            user_error(
+                f"Gagal memproses file metrik '{filename}'",
+                str(error),
+                "periksa kolom wajib (Name, vCenter, UUID, State), "
+                "delimiter koma, dan encoding UTF-8, lalu upload ulang",
+            )
+        )
     if raw_dataframe is not None and not raw_dataframe.empty:
         st.success(f"CSV Metrik: {len(raw_dataframe)} VM master berhasil dimuat.")
 
@@ -385,7 +393,14 @@ power_off_dataframe = None
 if poweroff_files:
     power_off_dataframe, failed_poweroff_files = load_power_off_uploads(poweroff_files)
     for filename, error in failed_poweroff_files:
-        st.error(f"❌ Gagal memproses file Power Off **{filename}**: {error}")
+        st.error(
+            user_error(
+                f"Gagal memproses file Power Off '{filename}'",
+                str(error),
+                "periksa kolom wajib dan format CSV, lalu upload ulang "
+                "(file ini opsional; analisis tetap bisa jalan tanpanya)",
+            )
+        )
     if power_off_dataframe is not None:
         st.success(
             f"CSV Power Off: {len(power_off_dataframe)} VM enrichment berhasil dimuat."
@@ -406,7 +421,14 @@ pic_files = st.file_uploader(
 if pic_files:
     pic_dataframe, failed_pic_files = load_pic_uploads(pic_files)
     for filename, error in failed_pic_files:
-        st.error(f"❌ Gagal memproses file PIC **{filename}**: {error}")
+        st.error(
+            user_error(
+                f"Gagal memproses file PIC '{filename}'",
+                str(error),
+                "periksa kolom nama VM dan PIC Owner pada file, "
+                "lalu upload ulang",
+            )
+        )
     if pic_dataframe is not None and not pic_dataframe.empty:
         st.success(f"Data PIC: Ditemukan {len(pic_dataframe)} pemetaan VM valid.")
         if st.button("💾 Ekstrak & Simpan PIC ke Database", type="primary"):
@@ -786,7 +808,16 @@ try:
 
 
 except Exception as error:
-    st.error(f"❌ Terjadi kesalahan teknis: {error}")
+    # HARD-06: pesan untuk user menjelaskan apa yang terjadi dan apa yang
+    # bisa dilakukan; detail teknis (traceback) hanya tampil saat debug.
+    st.error(
+        user_error(
+            "Analisis terhenti karena kesalahan tak terduga",
+            str(error),
+            "coba ulangi langkah terakhir; jika terus gagal, catat apa "
+            "yang sedang dilakukan lalu hubungi admin",
+        )
+    )
     with st.expander(
         "🔧 Detail Teknis",
         expanded=debug_mode,
