@@ -192,7 +192,9 @@ def _migrate_table_to_identity_key(cursor, table_name, insert_columns):
             continue
 
         values = [identity_key, ""]  # identity_key, vcenter (unknown="")
-        values.append(normalize_uuid_scalar(legacy_uuid) or "")
+        # FIX-01: pakai normalize_uuid() (aman pd.NA -> ""), bukan
+        # normalize_uuid_scalar(...) or "" yang crash saat hasil pd.NA.
+        values.append(normalize_uuid(legacy_uuid))
         values.append(str(legacy_name or ""))
         values.extend(
             row_dict.get(column, "") for column in insert_columns
