@@ -294,8 +294,11 @@ def _build_identity_key(
     normalized_name = normalize_vm_name_key(vm_name)
 
     if normalized_uuid and normalized_vcenter:
+        # FIX-02: format kanonis SELALU lowercase (selaras dengan
+        # normalize_identity_value) agar streak trend tidak terpecah
+        # menjadi dua grup ("VC01::.." vs "vc01::..").
         return (
-            f"{normalized_vcenter}"
+            f"{normalized_vcenter.lower()}"
             f"::{normalized_uuid}"
         )
 
@@ -313,9 +316,10 @@ def _build_identity_key(
     )
 
     if is_powered_off and normalized_name:
+        # FIX-02: kanonis lowercase, lihat komentar di atas.
         vcenter_key = (
-            normalized_vcenter
-            or "UNKNOWN_VCENTER"
+            normalized_vcenter.lower()
+            or "unknown_vcenter"
         )
 
         return (
@@ -638,8 +642,11 @@ def _reconstruct_legacy_identity_key(row):
     )
 
     if vm_uuid and vcenter:
+        # FIX-02: format kanonis SELALU lowercase agar konsisten dengan
+        # key baru (normalize_identity_value). Key legacy yang tersimpan
+        # tanpa identity_key tidak lagi terpecah menjadi grup "VC01::..".
         return (
-            f"{vcenter}::{vm_uuid}"
+            f"{vcenter.lower()}::{vm_uuid}"
         )
 
     if vm_name:
