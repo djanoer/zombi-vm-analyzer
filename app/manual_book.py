@@ -12,6 +12,10 @@
 #  - UUID dijelaskan sebagai data internal/audit yang disembunyikan dari UI.
 #  - Status, trend observasi aktual, fallback identity, dan batasan
 #    Power On/Power Off diselaraskan dengan implementasi final.
+#  UPDATE (25 Sep 2026):
+#  - Ditambah dokumentasi alur VM pindah vCenter (tawaran + konfirmasi + audit).
+#  - Ditambah dokumentasi nilai flag kolom "Kualitas Data".
+#  - Ditambah troubleshooting: kolom UUID hilang, parsing desimal koma.
 # ==============================================================================
 import streamlit as st
 
@@ -263,6 +267,29 @@ Status yang tersedia:
 
 ---
 
+### 🔀 VM Pindah vCenter
+
+Jika sebuah VM tercatat di vCenter berbeda dari sebelumnya (misalnya pindah dari VC01 ke VC02) tetapi UUID-nya sama, aplikasi menawarkannya di panel **"VM Terdeteksi Pindah vCenter"**.
+
+- Histori Status HK, PIC, dan trend **tidak** dipindahkan otomatis.
+- Penautan histori ke lokasi baru hanya terjadi setelah kamu klik **setuju** pada tawaran tersebut.
+- Setiap penautan yang disetujui tercatat di tabel audit `vm_identity_moves`.
+- Jika UUID yang sama muncul dua kali dalam satu upload, tawaran tidak ditampilkan karena datanya konflik dan perlu diperiksa manual.
+
+---
+
+### 🏷️ Kualitas Data
+
+Kolom **"Kualitas Data"** menandai kelengkapan metrik tiap baris:
+
+- `Lengkap` — semua metrik kritis tersedia.
+- `Tidak Diketahui` — uptime tidak diketahui (dipakai oleh filter uptime).
+- `Metrik Tidak Lengkap` — satu atau lebih metrik kritis (CPU, IOPS, Throughput, Network) kosong atau tidak terbaca.
+
+Baris bertanda `Metrik Tidak Lengkap` tetap tampil sebagai kandidat dan wajib diverifikasi manual, karena metrik yang hilang diperlakukan sebagai 0.0 saat penilaian.
+
+---
+
 ### ✅ Sanity Check
 
 Setelah analisis selesai, periksa:
@@ -292,6 +319,14 @@ Jangan mengambil keputusan decommission hanya berdasarkan satu snapshot atau sat
 #### CSV Metrik gagal karena vCenter
 
 Pastikan CSV dari dashboard vROps **"Lembar Kerja"** memiliki kolom `vCenter`.
+
+#### CSV Metrik ditolak karena kolom UUID hilang
+
+Kolom `UUID` wajib ada di CSV Metrik VM. Jika kolomnya tidak ada, upload ditolak dengan pesan error yang menyebut kolom yang hilang; aplikasi tidak crash.
+
+#### Angka desimal koma terbaca salah
+
+Aplikasi membedakan koma desimal dari koma pemisah ribuan. Contoh: `"45,5"` dibaca `45.0` (bukan `455.0`), sedangkan `"2,809.25"` dibaca `2809.25`.
 
 #### CSV Power Off gagal karena vCenter
 
@@ -331,7 +366,7 @@ UUID sengaja disembunyikan dari tabel utama dan tabel trend agar UI lebih ringka
 4. Upload CSV Metrik VM sebagai file master.
 5. Upload CSV Power Off sebagai enrichment jika analisis disposal diperlukan.
 6. Upload data PIC/Owner jika diperlukan.
-7. Pilih State, filter Uptime, filter Tag, dan threshold pada sidebar.
+7. Pilih State, filter Uptime (inklusif, misalnya 30 hari mencakup tepat 30 hari), filter Tag, dan threshold pada sidebar.
 8. Review Kandidat Zombie dan Kandidat Disposal.
 9. Isi PIC Owner, Status HK, dan Catatan jika sudah ada hasil koordinasi.
 10. Klik **Simpan Perubahan** untuk menyimpan status ke database.
@@ -386,7 +421,7 @@ UUID sengaja disembunyikan dari tabel utama dan tabel trend agar UI lebih ringka
 Jika ada pertanyaan atau issue, hubungi tim Surrounding Compute Recovery Operation (SCR).
 
 **Versi:** v4.0
-**Last Update:** 24 Sep 2026 — penyelarasan sumber data vROps, Identity Key, trend observasi aktual, parser, dan UI.
+**Last Update:** 25 Sep 2026 — alur pindah vCenter, flag Kualitas Data, troubleshooting UUID dan desimal koma, filter uptime inklusif.
 """
 
 
