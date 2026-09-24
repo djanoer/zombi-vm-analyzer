@@ -39,12 +39,38 @@ POWER_STATE_COLUMN = "Power State"
 DISPOSAL_LABEL = "Kandidat Disposal"
 
 
+def _parse_days_scalar(value):
+    """Parse satu nilai Days Powered Off.
+
+    FIX-03: bedakan koma desimal ("25,5" -> 25.5) dari koma pemisah
+    ribuan ("1,000" -> 1000). Aturan:
+    - Ada "." dan ",": pemisah TERAKHIR adalah desimal ("1.234,5"->1234.5).
+    - Hanya ",": koma tunggal + 1-2 digit akhir = desimal ("25,5"->25.5);
+      selain itu pemisah ribuan ("1,234,567"->1234567).
+    """
+    text = str(value).strip()
+
+    if "." in text and "," in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        parts = text.split(",")
+        if (
+            len(parts) == 2
+            and parts[1].isdigit()
+            and len(parts[1]) in (1, 2)
+        ):
+            text = f"{parts[0]}.{parts[1]}"
+        else:
+            text = text.replace(",", "")
+
+    return pd.to_numeric(text, errors="coerce")
+
+
 def _parse_days_powered_off(series):
-    return series.apply(
-        lambda value: pd.to_numeric(
-            str(value).replace(",", "").strip(), errors="coerce"
-        )
-    )
+    return series.apply(_parse_days_scalar)
 
 
 def normalize_power_off_dataframe(dataframe):
