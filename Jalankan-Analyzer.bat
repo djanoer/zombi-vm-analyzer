@@ -46,14 +46,16 @@ if not defined PYEXE (
     exit /b 1
 )
 
-echo [System] Menjalankan Streamlit Server...
-"%PYEXE%" -c "import streamlit" 2>nul
-if errorlevel 1 (
+rem Cek dependensi via folder site-packages (tanpa menjalankan python -c)
+for %%H in ("%PYEXE%\..") do set "PYHOME=%%~fH"
+if not exist "%PYHOME%\Lib\site-packages\streamlit" (
     echo [ERROR] Dependensi belum terinstall ke WinPython portable.
     echo [INFO] Jalankan Setup-Windows.bat terlebih dahulu (sekali saja, butuh internet).
     pause
     exit /b 1
 )
+
+echo [System] Menjalankan Streamlit Server...
 "%PYEXE%" -m streamlit run app\main.py
 
 pause
