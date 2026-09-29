@@ -41,6 +41,15 @@ terdampak. Seluruh suite regresi tetap hijau setelah perubahan.
 - [ ] UAT-10 menunggu Fase 4
 - [ ] Sign-off Nucifera (di bawah)
 
+## Catatan keterlacakan (30 September 2026)
+
+Skrip uji asli yang dirujuk pada tabel ringkasan di atas (`uat_fase6.py`,
+`demo_bug.py`, `test_fase2.py`, `test_fase3.py`) tidak ditemukan — tidak pernah
+ter-commit ke repo (0 commit di history git) dan tidak ada di mesin pengembang.
+Task B1 (memindahkan skrip tersebut ke `tests/`) dibatalkan dan diganti
+B1-alt: suite regresi baru yang ditulis jujur berdasarkan skenario UAT di atas
+(bukan rekonstruksi skrip asli), direkam di `tests/` dan dijalankan oleh CI.
+
 ## Sign-off
 
 Dengan ini saya menyatakan hasil UAT di atas dapat diterima.
