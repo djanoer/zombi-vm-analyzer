@@ -50,7 +50,7 @@ Task B1 (memindahkan skrip tersebut ke `tests/`) dibatalkan dan diganti
 B1-alt: suite regresi baru yang ditulis jujur berdasarkan skenario UAT di atas
 (bukan rekonstruksi skrip asli), direkam di `tests/` dan dijalankan oleh CI.
 
-### Verifikasi UAT-10 (30 September 2026, Fase C)
+### Verifikasi UAT-10 (30 September 2026, Fase 4)
 
 - Wheelhouse `wheelhouse-py3.13-manylinux_x86_64.zip` (38 wheel, 106 MB)
   di-build via `pip download` dengan `--python-version 3.13`,
@@ -71,9 +71,12 @@ B1-alt: suite regresi baru yang ditulis jujur berdasarkan skenario UAT di atas
   kelengkapan wheelhouse Python 3.13 dibuktikan oleh keberhasilan resolver
   `pip download` untuk seluruh dependency tree. Uji di mesin Ubuntu offline
   dengan Python 3.13 real menunggu David.
-- Launcher Windows (`Jalankan-Analyzer.bat`, `Setup-Windows.bat`) hanya
-  di-review manual (tidak dapat dieksekusi di sandbox Linux);
-  uji klik-langsung di Windows 11 menunggu David.
+- Launcher Windows (`Jalankan-Analyzer.bat`, `Setup-Windows.bat`)
+  terverifikasi oleh David pada 30 September 2026: klik dua kali
+  `Jalankan-Analyzer.bat` menjalankan Streamlit dengan benar
+  (versi hardened tanpa blok `for`/`if` bersarang, commit `daa2c3f`).
+  Uji instalasi offline di mesin Ubuntu real tetap menunggu David
+  (lihat "Batasan jujur" di atas).
 
 ## Sign-off
 
