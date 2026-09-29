@@ -39,6 +39,36 @@ Script ini akan:
 
 Syarat di mesin offline: `python3.13` dan `unzip` terinstall.
 
+## Lampiran A — Install Python 3.13 dari source (bila server belum ada Python)
+
+Bila `python3.13` belum tersedia di server:
+
+1. Di mesin berinternet, download `Python-3.13.15.tar.xz` dari
+   <https://www.python.org/downloads/release/python-31315/>
+   (3.13.15 = rilis pemeliharaan terbaru seri 3.13).
+2. Letakkan file `.tar.xz` **di dalam folder project**
+   (sejajar dengan `setup_offline.sh`), lalu salin semuanya ke server offline.
+3. Di server, dari dalam folder project jalankan:
+
+```bash
+tar -xf Python-3.13.15.tar.xz && cd Python-3.13.15
+./configure --enable-optimizations
+make -j$(nproc)
+sudo make altinstall
+cd ..
+```
+
+Catatan:
+- Pakai `altinstall` (bukan `install`) agar Python bawaan sistem tidak
+  tertimpa; hasilnya `python3.13` tersedia di `/usr/local/bin`.
+- Butuh paket build (`build-essential`, `libssl-dev`, `zlib1g-dev`,
+  `libffi-dev`, dsb). Idealnya langkah ini dilakukan **sebelum** server
+  di-offline-kan, atau siapkan paket `.deb`-nya terlebih dahulu.
+- Alternatif bila server masih online: Ubuntu 24.04+ umumnya cukup
+  `sudo apt install python3.13 python3.13-venv`.
+- Folder `Python-3.13.15/` hasil ekstrak boleh dihapus setelah instalasi
+  selesai untuk menghemat tempat.
+
 ## 3. Menjalankan aplikasi
 
 ```bash
