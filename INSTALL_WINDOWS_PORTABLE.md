@@ -61,6 +61,13 @@ langsung diklik tanpa setup ulang.
 
 ## Troubleshooting
 
+- **Kotak "Open File - Security Warning" setiap klik `.bat`**: file masih
+  membawa Mark of the Web (tanda file berasal dari internet). Unblock sekali
+  saja — klik kanan file `.bat` → Properties → centang "Unblock" → OK;
+  atau via PowerShell biasa (tanpa administrator):
+  `Get-ChildItem -Path 'D:\zombi-portable' -Recurse | Unblock-File`
+  (sesuaikan path dengan lokasi bundle). Setelah itu klik dua kali langsung
+  jalan tanpa peringatan. Ulangi sekali setiap menyalin bundle ke PC lain.
 - **`[ERROR] WinPython tidak ditemukan`** padahal folder sudah sejajar:
   cek isi folder `WPy64-*` — pastikan ada `python.exe` di dalamnya.
   Diagnosis cepat dari dalam folder induk bundle:

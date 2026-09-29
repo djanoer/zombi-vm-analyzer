@@ -4,6 +4,8 @@
 
 wheelhouse/
 wheelhouse-*.zip
+# Installer Python (distribusi via GitHub Release, bukan commit)
+Python-*.tar.xz
 
 # ============================================================
 # Python
