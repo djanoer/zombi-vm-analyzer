@@ -32,6 +32,7 @@ cd /opt/zombi-vm-analyzer
 ```
 
 Script ini akan:
+
 - mengekstrak wheelhouse (bila belum diekstrak),
 - membuat virtual environment Python 3.13 (`venv/`),
 - menginstall dependensi **tanpa internet** (`pip --no-index --find-links=wheelhouse`),
@@ -43,9 +44,11 @@ Syarat di mesin offline: `python3.13` dan `unzip` terinstall.
 
 Bila `python3.13` belum tersedia di server:
 
-1. Di mesin berinternet, download `Python-3.13.15.tar.xz` dari
-   <https://www.python.org/downloads/release/python-31315/>
-   (3.13.15 = rilis pemeliharaan terbaru seri 3.13).
+1. Di mesin berinternet, download `Python-3.13.15.tar.xz` — pilih salah satu sumber:
+   - halaman [Releases](https://github.com/djanoer/zombi-vm-analyzer/releases)
+     project ini (disarankan; versi sudah disamakan dengan `.python-version`), atau
+   - <https://www.python.org/downloads/release/python-31315/>
+     (3.13.15 = rilis pemeliharaan terbaru seri 3.13).
 2. Letakkan file `.tar.xz` **di dalam folder project**
    (sejajar dengan `setup_offline.sh`), lalu salin semuanya ke server offline.
 3. Di server, dari dalam folder project jalankan:
@@ -59,6 +62,7 @@ cd ..
 ```
 
 Catatan:
+
 - Pakai `altinstall` (bukan `install`) agar Python bawaan sistem tidak
   tertimpa; hasilnya `python3.13` tersedia di `/usr/local/bin`.
 - Butuh paket build (`build-essential`, `libssl-dev`, `zlib1g-dev`,
