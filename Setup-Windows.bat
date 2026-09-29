@@ -14,11 +14,19 @@ if not exist "requirements.txt" (
     exit /b 1
 )
 
-rem Cari python.exe WinPython portable di sebelah folder project (..\WPy64-*)
+rem Cari python.exe WinPython portable di sebelah folder project.
+rem Folder project harus bersebelahan dengan folder WPy64-* dalam satu folder induk.
 set "PYEXE="
-for /d %%D in ("%~dp0..\WPy64-*") do (
+for %%I in ("%~dp0..") do set "PARENT=%%~fI"
+for /d %%D in ("%PARENT%\WPy64-*") do (
     for /d %%P in ("%%D\python-3.*.amd64") do (
         if exist "%%P\python.exe" set "PYEXE=%%P\python.exe"
+    )
+    rem Fallback: cari python.exe secara rekursif bila pola nama folder tidak cocok
+    if not defined PYEXE (
+        for /f "delims=" %%P in ('dir /b /s "%%D\python.exe" 2^>nul') do (
+            if not defined PYEXE set "PYEXE=%%P"
+        )
     )
 )
 

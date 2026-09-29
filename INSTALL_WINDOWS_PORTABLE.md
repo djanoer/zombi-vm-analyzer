@@ -45,5 +45,17 @@ langsung diklik tanpa setup ulang.
 - Disarankan WinPython Python 3.13 (mengikuti `.python-version` project).
 - Kedua file `.bat` otomatis mendeteksi folder `WPy64-*` dan
   `python-3.*.amd64` apa pun versinya — tidak perlu edit file.
+  Bila pola nama folder tidak cocok, launcher mencari `python.exe`
+  secara rekursif di dalam folder `WPy64-*`.
 - Jika kedua `.bat` tidak menemukan WinPython, pastikan folder project
   (`zombi-vm-analyzer`) sejajar dengan folder `WPy64-*` seperti struktur di atas.
+
+## Troubleshooting
+
+- **`[ERROR] WinPython tidak ditemukan`** padahal folder sudah sejajar:
+  cek isi folder `WPy64-*` — pastikan ada `python.exe` di dalamnya.
+  Diagnosis cepat dari dalam folder induk bundle:
+  `dir WPy64-*\python.exe /s`
+  harus menampilkan minimal satu hasil.
+- **`[ERROR] Dependensi belum terinstall`** saat klik `Jalankan-Analyzer.bat`:
+  jalankan `Setup-Windows.bat` terlebih dahulu (sekali saja, butuh internet).

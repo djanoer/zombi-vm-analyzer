@@ -20,11 +20,19 @@ if not exist "data" (
     mkdir "data"
 )
 
-rem Cari python.exe WinPython portable (nama folder mengikuti versi, jadi dideteksi otomatis)
+rem Cari python.exe WinPython portable (nama folder mengikuti versi, jadi dideteksi otomatis).
+rem Folder project harus bersebelahan dengan folder WPy64-* dalam satu folder induk.
 set "PYEXE="
-for /d %%D in ("%~dp0..\WPy64-*") do (
+for %%I in ("%~dp0..") do set "PARENT=%%~fI"
+for /d %%D in ("%PARENT%\WPy64-*") do (
     for /d %%P in ("%%D\python-3.*.amd64") do (
         if exist "%%P\python.exe" set "PYEXE=%%P\python.exe"
+    )
+    rem Fallback: cari python.exe secara rekursif bila pola nama folder tidak cocok
+    if not defined PYEXE (
+        for /f "delims=" %%P in ('dir /b /s "%%D\python.exe" 2^>nul') do (
+            if not defined PYEXE set "PYEXE=%%P"
+        )
     )
 )
 
@@ -37,6 +45,13 @@ if not defined PYEXE (
 )
 
 echo [System] Menjalankan Streamlit Server...
+"%PYEXE%" -c "import streamlit" 2>nul
+if errorlevel 1 (
+    echo [ERROR] Dependensi belum terinstall ke WinPython portable.
+    echo [INFO] Jalankan Setup-Windows.bat terlebih dahulu (sekali saja, butuh internet).
+    pause
+    exit /b 1
+)
 "%PYEXE%" -m streamlit run app\main.py
 
 pause
