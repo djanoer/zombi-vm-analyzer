@@ -47,8 +47,8 @@ if not defined PYEXE (
 )
 
 rem Cek dependensi via folder site-packages (tanpa menjalankan python -c)
-for %%H in ("%PYEXE%\..") do set "PYHOME=%%~fH"
-if not exist "%PYHOME%\Lib\site-packages\streamlit" (
+for %%H in ("%PYEXE%") do set "PYHOME=%%~dpH"
+if not exist "%PYHOME%Lib\site-packages\streamlit" (
     echo [ERROR] Dependensi belum terinstall ke WinPython portable.
     echo [INFO] Jalankan Setup-Windows.bat terlebih dahulu (sekali saja, butuh internet).
     pause
