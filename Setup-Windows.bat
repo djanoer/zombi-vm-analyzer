@@ -19,16 +19,18 @@ rem Folder project harus bersebelahan dengan folder WPy64-* dalam satu folder in
 set "PYEXE="
 for %%I in ("%~dp0..") do set "PARENT=%%~fI"
 for /d %%D in ("%PARENT%\WPy64-*") do (
+    if exist "%%D\python\python.exe" set "PYEXE=%%D\python\python.exe"
     for /d %%P in ("%%D\python-3.*.amd64") do (
         if exist "%%P\python.exe" set "PYEXE=%%P\python.exe"
     )
-    rem Fallback: cari python.exe secara rekursif bila pola nama folder tidak cocok
+    rem Fallback terakhir: susuri folder WPy64-* bila kedua pola di atas tidak cocok
     if not defined PYEXE (
-        for /f "delims=" %%P in ('dir /b /s "%%D\python.exe" 2^>nul') do (
+        for /r "%%D" %%P in (python.exe) do (
             if not defined PYEXE set "PYEXE=%%P"
         )
     )
 )
+echo [System] Python: "%PYEXE%"
 
 if not defined PYEXE (
     echo [ERROR] WinPython tidak ditemukan.
