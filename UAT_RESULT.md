@@ -45,8 +45,8 @@ terdampak. Seluruh suite regresi tetap hijau setelah perubahan.
 
 Dengan ini saya menyatakan hasil UAT di atas dapat diterima.
 
-Nama: ______________________
+Nama: David
 
-Tanggal: ______________________
+Tanggal: 29 September 2026
 
-Tanda tangan: ______________________
+Tanda tangan: David
