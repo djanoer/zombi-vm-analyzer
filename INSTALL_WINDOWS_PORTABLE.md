@@ -42,6 +42,15 @@ langsung diklik tanpa setup ulang.
 
 ## Catatan
 
+- **Tanpa administrator.** Seluruh alur (setup + launcher) berjalan sebagai
+  user biasa: tidak menyentuh registry, folder sistem, service, atau firewall.
+  Streamlit di-bind ke `127.0.0.1` (localhost) sehingga Windows tidak
+  memunculkan dialog firewall. Syaratnya: letakkan folder bundle di lokasi
+  yang bisa ditulis user (mis. `D:\`, Documents, Desktop) — jangan di
+  `C:\Program Files`.
+- Jika suatu saat dashboard perlu diakses dari perangkat lain dalam satu
+  jaringan, hapus `--server.address 127.0.0.1` dari `Jalankan-Analyzer.bat`
+  (saat itu Windows akan meminta izin firewall satu kali).
 - Disarankan WinPython Python 3.13 (mengikuti `.python-version` project).
 - Kedua file `.bat` otomatis mendeteksi folder `WPy64-*` dan
   `python-3.*.amd64` apa pun versinya — tidak perlu edit file.

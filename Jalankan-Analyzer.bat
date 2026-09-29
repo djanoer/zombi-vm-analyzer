@@ -56,7 +56,7 @@ if not exist "%PYHOME%\Lib\site-packages\streamlit" (
 )
 
 echo [System] Menjalankan Streamlit Server...
-"%PYEXE%" -m streamlit run app\main.py
+"%PYEXE%" -m streamlit run app\main.py --server.address 127.0.0.1
 
 pause
 endlocal
