@@ -18,9 +18,9 @@ terinstal). Setiap skenario memakai data dan pipeline yang sama dengan aplikasi.
 | UAT-07 | Identity Key kosong | LULUS | `uat_fase6.py`: baris UUID+Name kosong terdeteksi, hitungan tersedia untuk peringatan UI |
 | UAT-08 | Bulk PIC upload | LULUS | `uat_fase6.py`: format benar teraplikasi; format salah -> pesan error menyebut nama file |
 | UAT-09 | Export | LULUS | `test_fase3.py` 8/8: gagal export -> st.error jelas, tidak crash |
-| UAT-10 | Instal offline | PENDING | Menunggu Fase 4 (paket portable offline) |
+| UAT-10 | Instal offline | LULUS (simulasi) | Wheelhouse 38 paket (CPython 3.13, manylinux x86_64) ter-build; `pip install --no-index` dari wheelhouse + launch app (HTTP 200) terverifikasi di sandbox. Uji di mesin offline real oleh David pending. |
 
-**Hasil: 9/10 lulus, 1 pending (UAT-10).**
+**Hasil: 9/10 lulus penuh + UAT-10 lulus simulasi (uji mesin offline real pending David).**
 
 ## Temuan UAT dan perbaikan
 
@@ -38,7 +38,7 @@ terdampak. Seluruh suite regresi tetap hijau setelah perubahan.
 
 - [x] Semua UAT yang dapat dieksekusi lulus (9/10)
 - [x] Tidak ada traceback mentah pada skenario gagal (pesan standar Indonesia)
-- [ ] UAT-10 menunggu Fase 4
+- [x] UAT-10 lulus simulasi (30 Sep 2026); uji mesin offline real oleh David pending
 - [ ] Sign-off Nucifera (di bawah)
 
 ## Catatan keterlacakan (30 September 2026)
@@ -49,6 +49,31 @@ ter-commit ke repo (0 commit di history git) dan tidak ada di mesin pengembang.
 Task B1 (memindahkan skrip tersebut ke `tests/`) dibatalkan dan diganti
 B1-alt: suite regresi baru yang ditulis jujur berdasarkan skenario UAT di atas
 (bukan rekonstruksi skrip asli), direkam di `tests/` dan dijalankan oleh CI.
+
+### Verifikasi UAT-10 (30 September 2026, Fase C)
+
+- Wheelhouse `wheelhouse-py3.13-manylinux_x86_64.zip` (38 wheel, 106 MB)
+  di-build via `pip download` dengan `--python-version 3.13`,
+  `--only-binary=:all:`, dan lima varian `--platform` manylinux
+  (sebagian package hanya menyediakan wheel untuk generasi manylinux tertentu).
+- Alur `setup_offline.sh` diuji ujung-ke-ujung di sandbox: ekstrak zip ->
+  buat venv -> `pip install --no-index --find-links=wheelhouse` ->
+  import `streamlit, pandas, openpyxl` OK. Idempoten (jalan ulang aman).
+- `start_analyzer.sh` diuji menjalankan aplikasi: Streamlit menyala,
+  `GET /` dan `/_stcore/health` mengembalikan HTTP 200.
+- `install_cron.sh` diuji dengan crontab tiruan: dua baris `@reboot` dan
+  `*/5` terpasang benar, idempoten, entri crontab lain tidak terganggu.
+  Pola keep-alive memakai `pgrep -f "streamlit run app/main[.]py"` —
+  trik `[.]` mencegah pola cocok dengan baris cron itu sendiri
+  (self-match yang membuat restart tidak pernah terpicu).
+- Batasan jujur: sandbox tidak memiliki Python 3.13, sehingga instalasi
+  offline di atas dijalankan dengan Python 3.12 + wheelhouse se-padan;
+  kelengkapan wheelhouse Python 3.13 dibuktikan oleh keberhasilan resolver
+  `pip download` untuk seluruh dependency tree. Uji di mesin Ubuntu offline
+  dengan Python 3.13 real menunggu David.
+- Launcher Windows (`Jalankan-Analyzer.bat`, `Setup-Windows.bat`) hanya
+  di-review manual (tidak dapat dieksekusi di sandbox Linux);
+  uji klik-langsung di Windows 11 menunggu David.
 
 ## Sign-off
 
