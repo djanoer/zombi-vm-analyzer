@@ -15,13 +15,42 @@ Aplikasi Streamlit untuk menganalisis VM idle/zombie dari data vROps — membant
 
 ## Kebutuhan
 
-- Python 3.13
-- Ubuntu x86_64 (target deployment)
-- Dependensi: `streamlit`, `pandas`, `openpyxl` (lihat `requirements.txt`)
+- Python 3.13 (lihat `.python-version`)
+- Ubuntu x86_64 (target deployment) atau Windows 11 (paket portable)
+- Dependensi: `streamlit==1.63.0`, `pandas==3.0.5`, `openpyxl==3.1.5` (lihat `requirements.txt`)
 
 > Catatan: aplikasi ini tool lokal single-user tanpa autentikasi. Jangan ekspos langsung ke jaringan publik tanpa lapisan keamanan tambahan.
 
-## Instalasi & Menjalankan
+## Cara Menjalankan
+
+### A. Ubuntu offline (server tanpa internet)
+
+Panduan lengkap: `INSTALL_OFFLINE.md`.
+
+1. Download `wheelhouse-py3.13-manylinux_x86_64.zip` dari halaman
+   [Releases](https://github.com/djanoer/zombi-vm-analyzer/releases),
+   letakkan di folder project.
+2. `./setup_offline.sh` — membuat virtual environment dan menginstall
+   dependensi tanpa internet.
+3. `./start_analyzer.sh` — menjalankan aplikasi.
+4. Opsional: `./install_cron.sh` — autostart saat mesin menyala +
+   keep-alive tiap 5 menit.
+
+### B. Windows 11 portable (WinPython, tanpa instalasi)
+
+Panduan lengkap: `INSTALL_WINDOWS_PORTABLE.md`.
+
+1. Ekstrak WinPython 3.13 (mis. `WPy64-31380`) di sebelah folder project.
+2. Klik dua kali `Setup-Windows.bat` (sekali saja, butuh internet) —
+   menginstall dependensi ke WinPython portable.
+3. Klik dua kali `Jalankan-Analyzer.bat` — aplikasi terbuka di browser.
+
+> Bila muncul kotak "Open File - Security Warning", unblock sekali saja:
+> klik kanan file `.bat` → Properties → centang "Unblock" → OK
+> (atau via PowerShell: `Unblock-File`). Lihat Troubleshooting di
+> `INSTALL_WINDOWS_PORTABLE.md`.
+
+### C. Mode pengembangan (mesin dengan internet)
 
 ```bash
 # 1. Buat virtual environment
@@ -40,24 +69,32 @@ Lalu buka alamat yang ditampilkan Streamlit di browser (umumnya `http://localhos
 ## Struktur Proyek
 
 ```
-app/                  Modul aplikasi (±7.300 baris, 17 modul)
-  main.py             Entry point — alur utama Streamlit
-  analysis.py         Business rule analisis zombie
-  data_loader.py      Ingest & validasi CSV
-  status_tracking.py  Persistensi status disposal (SQLite)
-  trend_analysis.py   Snapshot & analisis tren (SQLite)
-  results_view.py     Tampilan hasil analisis
-  trend_view.py       Tampilan tren
-  sidebar_controls.py Kontrol sidebar
-  error_messages.py   Pesan error standar Indonesia
-  manual_book.py      Manual pengguna in-app
-  ...                 (constants, parsers, identity_utils, app_config, dll.)
-tools/                8 skrip diagnosis & pengembangan
-cleanup_trend_db.py   Utilitas pembersihan DB tren
-inspect_status_db.py  Utilitas inspeksi DB status
-inspect_trend_db.py   Utilitas inspeksi DB tren
-UAT_RESULT.md         Hasil User Acceptance Test
-start_analyzer.bat    Launcher Windows
+app/                        19 modul aplikasi (±6.400 baris)
+  main.py                   Entry point — alur utama Streamlit
+  analysis.py               Business rule analisis zombie
+  data_loader.py            Ingest & validasi CSV
+  status_tracking.py        Persistensi status disposal (SQLite)
+  trend_analysis.py         Snapshot & analisis tren (SQLite)
+  results_view.py           Tampilan hasil analisis
+  trend_view.py             Tampilan tren
+  sidebar_controls.py       Kontrol sidebar
+  error_messages.py         Pesan error standar Indonesia
+  manual_book.py            Manual pengguna in-app
+  ...                       (constants, parsers, identity_utils, app_config, dll.)
+tests/
+  test_regresi.py           Suite regresi 11 test (dijalankan CI)
+tools/                      8 skrip diagnosis & pengembangan
+setup_offline.sh            Instalasi offline Ubuntu (sekali-jalan)
+install_cron.sh             Pasang cronjob autostart + keep-alive
+start_analyzer.sh           Launcher Linux
+Jalankan-Analyzer.bat       Launcher Windows 11 (WinPython portable)
+Setup-Windows.bat           Setup dependensi Windows (sekali, butuh internet)
+INSTALL_OFFLINE.md          Panduan instalasi offline Ubuntu
+INSTALL_WINDOWS_PORTABLE.md Panduan portable Windows 11
+UAT_RESULT.md               Hasil User Acceptance Test
+cleanup_trend_db.py         Utilitas pembersihan DB tren
+inspect_status_db.py        Utilitas inspeksi DB status
+inspect_trend_db.py         Utilitas inspeksi DB tren
 ```
 
 ## Alur Kerja
@@ -78,11 +115,13 @@ Data lokal tersimpan di `data/` (`status_tracking.db`, `trend_history.db`,
 | Fase 1 | ✅ Selesai & terverifikasi |
 | Fase 2 | ✅ Selesai & terverifikasi |
 | Fase 3 | ✅ Selesai & terverifikasi |
-| Fase 4 — Paket portable offline | ⏳ Pending |
-| Fase 5 — systemd | ⏳ Pending (ditunda) |
+| Fase 4 — Paket portable offline (Ubuntu + Windows 11) | ✅ Selesai 30 Sep 2026 |
+| Fase 5 — systemd | ⏳ Ditunda |
 | Fase 6 | ✅ Selesai & terverifikasi |
 
-UAT: 9/10 lulus (lihat `UAT_RESULT.md`; UAT-10 menunggu Fase 4).
+UAT: 9/10 lulus penuh + UAT-10 lulus simulasi (lihat `UAT_RESULT.md`;
+uji mesin offline real pending David).
+CI: GitHub Actions hijau — suite regresi `tests/test_regresi.py` 11/11.
 
 ## Pengembangan
 
@@ -90,3 +129,7 @@ Perubahan kode dilakukan manual oleh maintainer. Setiap modul mencantumkan
 PATCH NOTES di header file sebagai riwayat perubahan. Ikuti standar yang ada:
 pesan error berbahasa Indonesia via `user_error()`, tanpa traceback mentah
 ke user, dan satu langkah kecil per commit.
+
+## Lisensi
+
+Proprietary — © 2026 David. Lihat `LICENSE`.
