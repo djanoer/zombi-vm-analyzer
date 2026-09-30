@@ -110,7 +110,7 @@ def apply_disposal_labels(power_off_dataframe, min_off_days):
 
     candidate_mask = (
         result["Power Off Data Valid"]
-        & (result[POWER_OFF_DAYS_COLUMN] > float(min_off_days))
+        & (result[POWER_OFF_DAYS_COLUMN] >= float(min_off_days))
     )
 
     result["Label Disposal"] = None
@@ -123,7 +123,7 @@ def apply_disposal_labels(power_off_dataframe, min_off_days):
         lambda row: (
             f"Power State={row.get(POWER_STATE_COLUMN, 'Unknown')}, "
             f"Days Powered Off={int(row[POWER_OFF_DAYS_COLUMN])} hari "
-            f"> ambang {int(min_off_days)} hari."
+            f">= ambang {int(min_off_days)} hari."
         ),
         axis=1,
     )
