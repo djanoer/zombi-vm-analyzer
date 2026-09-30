@@ -95,12 +95,14 @@ def _prepare_user_facing_dataframe(dataframe):
 
 
 # Urutan kolom user-facing untuk export Excel (disepakati David
-# 2026-10-01). Kolom "No." disisipkan terpisah di posisi 0.
+# 2026-10-01; revisi v4c: Kritikalitas tepat setelah State).
+# Kolom "No." disisipkan terpisah di posisi 0.
 # Kolom yang tidak ada (mis. tanpa file Power Off) dilewati;
 # kolom tak dikenal diletakkan di belakang agar tidak hilang.
 USER_FACING_COLUMN_ORDER = [
     "Name",
     "State",
+    "Kritikalitas",
     "vCPU",
     "Utilization CPU (%)",
     "CPU Percentile 95%",
@@ -136,7 +138,6 @@ USER_FACING_COLUMN_ORDER = [
     "Summary|Guest Operating System|Tools Version Status",
     "Network I/O | Usage Rate (KBps) - 95th Percentile",
     "Status Idle",
-    "Kritikalitas",
     "Kualitas Data",
     "Uptime / Days",
     "Days Powered Off",
@@ -147,6 +148,29 @@ USER_FACING_COLUMN_ORDER = [
     "PIC Owner",
     "Catatan",
 ]
+
+# Nama bulan Indonesia untuk format tanggal evidence
+# (tanpa dependensi locale OS): "1 Oktober 2026".
+_BULAN_ID = {
+    1: "Januari", 2: "Februari", 3: "Maret", 4: "April",
+    5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus",
+    9: "September", 10: "Oktober", 11: "November", 12: "Desember",
+}
+
+
+def format_tanggal_id(tanggal):
+    """Format tanggal ala Indonesia: "1 Oktober 2026"."""
+    if tanggal is None:
+        return ""
+    if hasattr(tanggal, "strftime"):
+        try:
+            return (
+                f"{tanggal.day} {_BULAN_ID[tanggal.month]} {tanggal.year}"
+            )
+        except (KeyError, AttributeError, TypeError):
+            pass
+    return str(tanggal)
+
 
 # Kolom yang dibuang dari file export (bukan dari data internal).
 # - "Power State": duplikat "State" (identik utk baris disposal, kosong utk zombie).
@@ -358,11 +382,7 @@ def render_results_section(
     )
 
     # Cap waktu evidence: kapan data ini dianalisis.
-    tanggal_str = (
-        tanggal_proses.strftime("%d-%m-%Y")
-        if tanggal_proses and hasattr(tanggal_proses, "strftime")
-        else (str(tanggal_proses) if tanggal_proses else "")
-    )
+    tanggal_str = format_tanggal_id(tanggal_proses)
     if tanggal_str:
         st.caption(f"🗓️ Dianalisis pada: {tanggal_str}")
 
