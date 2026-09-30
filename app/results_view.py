@@ -81,12 +81,72 @@ def _prepare_user_facing_dataframe(dataframe):
                 disposal_rows, "Justifikasi Disposal"
             ]
 
-    return result.drop(
+    result = result.drop(
         columns=["Catatan HK"],
         errors="ignore",
     )
 
+    # Terapkan urutan kolom user-facing (hanya memengaruhi urutan
+    # tampil/export; seluruh akses kolom di aplikasi by name).
+    ordered = [c for c in USER_FACING_COLUMN_ORDER if c in result.columns]
+    ordered += [c for c in result.columns if c not in ordered]
+    return result[ordered]
 
+
+
+# Urutan kolom user-facing untuk export Excel (disepakati David
+# 2026-10-01). Kolom "No." disisipkan terpisah di posisi 0.
+# Kolom yang tidak ada (mis. tanpa file Power Off) dilewati;
+# kolom tak dikenal diletakkan di belakang agar tidak hilang.
+USER_FACING_COLUMN_ORDER = [
+    "Name",
+    "State",
+    "vCPU",
+    "Utilization CPU (%)",
+    "CPU Percentile 95%",
+    "CPU|Contention (%)",
+    "Memory (GB)",
+    "Utilization Memory (%)",
+    "Memory Percentile 95%",
+    "Provisioned Space (GB)",
+    "Provisioned Space (TB)",
+    "Used Space (GB)",
+    "Used Space (TB)",
+    "Utilization Disk (%)",
+    "Virtual Disk Total Latency",
+    "Storage Read Latency",
+    "Storage Write Latency",
+    "Avg Read IOPS",
+    "Avg Write IOPS",
+    "IOPS Percentile 95%",
+    "Avg Read Throughput",
+    "Avg Write Throughput",
+    "Throughput Percentile 95%",
+    "IP",
+    "Guest OS",
+    "vCenter",
+    "Cluster",
+    "Host",
+    "Datastore",
+    "UUID",
+    "Identity Key",
+    "Summary|vSphere Tag",
+    "Summary|Guest Operating System|Tools Running Status",
+    "Summary|Guest Operating System|Tools Version",
+    "Summary|Guest Operating System|Tools Version Status",
+    "Network I/O | Usage Rate (KBps) - 95th Percentile",
+    "Status Idle",
+    "Kritikalitas",
+    "Kualitas Data",
+    "Uptime / Days",
+    "Days Powered Off",
+    "Skor Idle (0-100)",
+    "Label",
+    "Justifikasi",
+    "Status HK",
+    "PIC Owner",
+    "Catatan",
+]
 
 # Kolom yang dibuang dari file export (bukan dari data internal).
 # - "Power State": duplikat "State" (identik utk baris disposal, kosong utk zombie).
