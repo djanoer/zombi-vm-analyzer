@@ -85,6 +85,7 @@ from identity_utils import (
     build_identity_key,
     invalid_identity_mask,
     is_powered_off_series,
+    unknown_state_mask,
     normalize_uuid_series,
     normalize_vcenter_series,
 )
@@ -560,7 +561,25 @@ try:
 
     filtered_vms = validate_identity_column(filtered_vms, "filtered_vms")
 
-    filtered_active = filtered_vms[~is_powered_off_series(filtered_vms)].copy()
+    # FIX: VM dengan State tidak dikenal (kosong/Unknown) BUKAN bukti
+    # powered on -- kecualikan dari analisis zombie agar tidak salah
+    # dilabeli Kandidat Zombie (metrik nol selalu di bawah threshold).
+    unknown_states = unknown_state_mask(filtered_vms)
+    if unknown_states.any():
+        unknown_names = (
+            filtered_vms.loc[unknown_states, "Name"].head(10).tolist()
+            if "Name" in filtered_vms.columns
+            else []
+        )
+        st.warning(
+            f"\u26a0\ufe0f {int(unknown_states.sum())} VM memiliki State "
+            "yang tidak dikenali (kosong/Unknown) sehingga tidak "
+            "dianalisis sebagai Kandidat Zombie. Periksa kembali file "
+            f"sumber. Contoh: {unknown_names}"
+        )
+    filtered_active = filtered_vms[
+        ~is_powered_off_series(filtered_vms) & ~unknown_states
+    ].copy()
     filtered_active = validate_unique_identity_dataframe(
         filtered_active,
         "filtered_active",

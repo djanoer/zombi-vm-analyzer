@@ -93,6 +93,23 @@ def is_powered_off_series(dataframe, state_column="State"):
     )
 
 
+# Token State yang dianggap TIDAK DIKENAL (bukan bukti powered on
+# maupun powered off). Berasal dari normalisasi State kosong/NaN.
+# VM dengan State ini TIDAK BOLEH dianalisis sebagai Kandidat Zombie
+# (fail-safe: salah melabeli lebih berbahaya daripada tidak melabeli).
+UNKNOWN_STATE_TOKENS = {"", "unknown", "nan", "none"}
+
+
+def unknown_state_mask(dataframe, state_column="State"):
+    """Mask baris dengan State tidak dikenal (kosong/Unknown/dsb)."""
+    if state_column not in dataframe.columns:
+        return pd.Series(False, index=dataframe.index)
+    normalized = (
+        dataframe[state_column].astype("string").str.strip().str.lower()
+    )
+    return normalized.isin(UNKNOWN_STATE_TOKENS)
+
+
 def invalid_identity_mask(series):
     normalized = series.astype("string").str.strip()
     return (
