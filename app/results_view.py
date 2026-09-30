@@ -273,6 +273,15 @@ def render_results_section(
         "### 📋 Hasil Keputusan & Analisis Master VM"
     )
 
+    # Cap waktu evidence: kapan data ini dianalisis.
+    if tanggal_proses:
+        tanggal_str = (
+            tanggal_proses.strftime("%d-%m-%Y")
+            if hasattr(tanggal_proses, "strftime")
+            else str(tanggal_proses)
+        )
+        st.caption(f"🗓️ Dianalisis pada: {tanggal_str}")
+
     if combined_candidates.empty:
         st.info(
             "Tidak ada VM yang memenuhi kriteria filter saat ini."
