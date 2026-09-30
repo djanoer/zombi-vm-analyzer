@@ -21,7 +21,10 @@ import pandas as pd
 import streamlit as st
 
 from error_messages import user_error
-from identity_utils import invalid_identity_mask
+from identity_utils import (
+    invalid_identity_mask,
+    is_powered_off_series,
+)
 from status_tracking import (
     VALID_STATUSES,
     save_status_updates,
@@ -66,6 +69,76 @@ def _prepare_user_facing_dataframe(dataframe):
         columns=["Catatan HK"],
         errors="ignore",
     )
+
+
+
+# Kolom yang dibuang dari file export (bukan dari data internal).
+# - "Power State": duplikat "State" (identik utk baris disposal, kosong utk zombie).
+# - "Is Kandidat Zombie": redundan dgn "Label" di dalam scope file export.
+EXPORT_DROP_COLUMNS = ["Power State", "Is Kandidat Zombie"]
+
+
+def _contextual_preview_columns(display_dataframe, memory_column,
+                                selected_states=None):
+    """Daftar kolom preview UI mengikuti PILIHAN FILTER State.
+
+    Kolom khusus-zombie disembunyikan bila tidak ada state Powered On
+    yang dipilih; kolom khusus-disposal disembunyikan bila tidak ada
+    state Powered Off yang dipilih. Ditentukan dari FILTER (bukan data)
+    supaya kolom tidak hilang secara mengejutkan ketika barisnya habis
+    tersaring filter lain (uptime/tag/search). Kolom manual
+    (PIC Owner, Status HK, Catatan) selalu tampil.
+    """
+    zombie_only_columns = {
+        "Uptime / Days",
+        "Skor Idle (0-100)",
+        "CPU Percentile 95%",
+        "IOPS Percentile 95%",
+        "Throughput Percentile 95%",
+        "Network I/O | Usage Rate (KBps) - 95th Percentile",
+        "Status Justifikasi",
+    }
+    if memory_column:
+        zombie_only_columns.add(memory_column)
+    disposal_only_columns = {"Days Powered Off"}
+
+    # selected_states tidak pernah kosong di titik ini (main.py st.stop
+    # bila kosong); default aman = tampilkan semua kolom.
+    if not selected_states:
+        has_powered_on, has_powered_off = True, True
+    else:
+        state_frame = pd.DataFrame({"State": list(selected_states)})
+        off_mask = is_powered_off_series(state_frame)
+        has_powered_off = bool(off_mask.any())
+        has_powered_on = bool((~off_mask).any())
+
+    ordered_columns = [
+        "No.",
+        "Name",
+        "vCenter",
+        "Kritikalitas",
+        "State",
+        "Uptime / Days",
+        "Days Powered Off",
+        "Label",
+        "Skor Idle (0-100)",
+        "CPU Percentile 95%",
+        "IOPS Percentile 95%",
+        "Throughput Percentile 95%",
+        memory_column,
+        "Network I/O | Usage Rate (KBps) - 95th Percentile",
+        "Status Justifikasi",
+        "PIC Owner",
+        "Status HK",
+        "Catatan",
+    ]
+    return [
+        column
+        for column in ordered_columns
+        if column in display_dataframe.columns
+        and (column not in zombie_only_columns or has_powered_on)
+        and (column not in disposal_only_columns or has_powered_off)
+    ]
 
 
 
@@ -194,6 +267,7 @@ def render_results_section(
     memory_column,
     updated_by,
     tanggal_proses=None,
+    selected_states=None,
 ):
     st.markdown(
         "### 📋 Hasil Keputusan & Analisis Master VM"
@@ -258,32 +332,14 @@ def render_results_section(
         )
 
     # UUID sengaja tidak dimasukkan ke preview UI.
-    preview_columns = [
-        "No.",
-        "Name",
-        "vCenter",
-        "Kritikalitas",
-        "State",
-        "Uptime / Days",
-        "Days Powered Off",
-        "Label",
-        "Skor Idle (0-100)",
-        "CPU Percentile 95%",
-        "IOPS Percentile 95%",
-        "Throughput Percentile 95%",
+    # Kolom preview mengikuti pilihan filter State: kolom yang tidak
+    # relevan dengan state terpilih disembunyikan (mis. Days Powered Off
+    # saat filter hanya Powered On).
+    preview_columns = _contextual_preview_columns(
+        display_dataframe,
         memory_column,
-        "Network I/O | Usage Rate (KBps) - 95th Percentile",
-        "Status Justifikasi",
-        "PIC Owner",
-        "Status HK",
-        "Catatan",
-    ]
-
-    preview_columns = [
-        column
-        for column in preview_columns
-        if column in display_dataframe.columns
-    ]
+        selected_states,
+    )
 
     editor_dataframe = display_dataframe[
         preview_columns
@@ -430,7 +486,7 @@ def render_results_section(
 
                 if saved_count > 0:
                     st.toast(
-                        f"{saved_count} perubahan berhasil disimpan.",
+                        f"{int(changed_rows.sum())} baris berhasil disimpan.",
                         icon="✅",
                     )
                     st.rerun()
@@ -448,7 +504,13 @@ def render_results_section(
         if tanggal_proses
         else "Master_VM_Analysis.xlsx"
     )
-    render_export_button(display_dataframe, file_name)
+    # Power State & Is Kandidat Zombie dibuang dari SALINAN export saja
+    # (duplikat/redundan); dataframe editor tidak berubah.
+    export_dataframe = display_dataframe.drop(
+        columns=EXPORT_DROP_COLUMNS,
+        errors="ignore",
+    )
+    render_export_button(export_dataframe, file_name)
 
 
 def build_excel_bytes(display_dataframe):

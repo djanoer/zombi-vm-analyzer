@@ -792,6 +792,7 @@ try:
         memory_column,
         updated_by,
         tanggal_proses,
+        selected_states,
     )
 
     record_success, record_error = record_period_snapshot(
