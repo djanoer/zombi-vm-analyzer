@@ -19,6 +19,7 @@ import io
 
 import pandas as pd
 import streamlit as st
+from openpyxl.styles import Font
 
 from error_messages import user_error
 from identity_utils import (
@@ -297,12 +298,12 @@ def render_results_section(
     )
 
     # Cap waktu evidence: kapan data ini dianalisis.
-    if tanggal_proses:
-        tanggal_str = (
-            tanggal_proses.strftime("%d-%m-%Y")
-            if hasattr(tanggal_proses, "strftime")
-            else str(tanggal_proses)
-        )
+    tanggal_str = (
+        tanggal_proses.strftime("%d-%m-%Y")
+        if tanggal_proses and hasattr(tanggal_proses, "strftime")
+        else (str(tanggal_proses) if tanggal_proses else "")
+    )
+    if tanggal_str:
         st.caption(f"🗓️ Dianalisis pada: {tanggal_str}")
 
     if combined_candidates.empty:
@@ -542,14 +543,22 @@ def render_results_section(
         columns=EXPORT_DROP_COLUMNS,
         errors="ignore",
     )
-    render_export_button(export_dataframe, file_name)
+    render_export_button(
+        export_dataframe,
+        file_name,
+        title="Hasil Keputusan & Analisis Master VM",
+        tanggal_str=tanggal_str,
+    )
 
 
-def build_excel_bytes(display_dataframe):
+def build_excel_bytes(display_dataframe, title=None, tanggal_str=None):
     """Bangun bytes file Excel dari dataframe.
 
     Melempar Exception saat gagal (mis. openpyxl bermasalah) — penangkap
     ada di render_export_button() agar aplikasi tidak crash (HARD-06).
+
+    Judul + tanggal analisis ditulis di atas tabel sebagai cap waktu
+    evidence (dua baris pertama, lalu satu baris kosong).
     """
     buffer = io.BytesIO()
 
@@ -557,23 +566,37 @@ def build_excel_bytes(display_dataframe):
         buffer,
         engine="openpyxl",
     ) as writer:
+        sheet_name = "Master VM Analysis"
+        startrow = 3 if title else 0
         display_dataframe.to_excel(
             writer,
             index=False,
-            sheet_name="Master VM Analysis",
+            sheet_name=sheet_name,
+            startrow=startrow,
         )
+        if title:
+            worksheet = writer.sheets[sheet_name]
+            worksheet["A1"] = title
+            worksheet["A1"].font = Font(bold=True, size=14)
+            if tanggal_str:
+                worksheet["A2"] = f"Dianalisis pada: {tanggal_str}"
+                worksheet["A2"].font = Font(bold=True)
 
     return buffer.getvalue()
 
 
-def render_export_button(display_dataframe, file_name):
+def render_export_button(
+    display_dataframe, file_name, title=None, tanggal_str=None
+):
     """Tampilkan tombol download Excel.
 
     HARD-06: kegagalan export menampilkan st.error berbahasa Indonesia
     (bukan crash); user diberi tahu apa yang bisa dilakukan.
     """
     try:
-        excel_bytes = build_excel_bytes(display_dataframe)
+        excel_bytes = build_excel_bytes(
+            display_dataframe, title=title, tanggal_str=tanggal_str
+        )
     except Exception as error:
         st.error(
             user_error(
