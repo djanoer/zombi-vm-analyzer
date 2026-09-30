@@ -65,6 +65,21 @@ def _prepare_user_facing_dataframe(dataframe):
         else:
             result["Catatan"] = ""
 
+    # Kolom Justifikasi gabungan: satu kolom untuk kedua Label yang
+    # disjoint (Kandidat Zombie vs Kandidat Disposal).
+    if "Justifikasi" not in result.columns:
+        base = (
+            result["Status Justifikasi"]
+            if "Status Justifikasi" in result.columns
+            else ""
+        )
+        result["Justifikasi"] = base
+        if "Justifikasi Disposal" in result.columns and "Label" in result.columns:
+            disposal_rows = result["Label"] == "Kandidat Disposal"
+            result.loc[disposal_rows, "Justifikasi"] = result.loc[
+                disposal_rows, "Justifikasi Disposal"
+            ]
+
     return result.drop(
         columns=["Catatan HK"],
         errors="ignore",
@@ -75,7 +90,14 @@ def _prepare_user_facing_dataframe(dataframe):
 # Kolom yang dibuang dari file export (bukan dari data internal).
 # - "Power State": duplikat "State" (identik utk baris disposal, kosong utk zombie).
 # - "Is Kandidat Zombie": redundan dgn "Label" di dalam scope file export.
-EXPORT_DROP_COLUMNS = ["Power State", "Is Kandidat Zombie"]
+# - "Status Justifikasi" & "Justifikasi Disposal": digantikan satu kolom
+#   "Justifikasi" (dibentuk di _prepare_user_facing_dataframe).
+EXPORT_DROP_COLUMNS = [
+    "Power State",
+    "Is Kandidat Zombie",
+    "Status Justifikasi",
+    "Justifikasi Disposal",
+]
 
 
 def _contextual_preview_columns(display_dataframe, memory_column,
@@ -96,8 +118,9 @@ def _contextual_preview_columns(display_dataframe, memory_column,
         "IOPS Percentile 95%",
         "Throughput Percentile 95%",
         "Network I/O | Usage Rate (KBps) - 95th Percentile",
-        "Status Justifikasi",
     }
+    # "Justifikasi" adalah kolom universal (isinya mengikuti Label),
+    # jadi tampil di kedua konteks filter.
     if memory_column:
         zombie_only_columns.add(memory_column)
     disposal_only_columns = {"Days Powered Off"}
@@ -127,7 +150,7 @@ def _contextual_preview_columns(display_dataframe, memory_column,
         "Throughput Percentile 95%",
         memory_column,
         "Network I/O | Usage Rate (KBps) - 95th Percentile",
-        "Status Justifikasi",
+        "Justifikasi",
         "PIC Owner",
         "Status HK",
         "Catatan",
