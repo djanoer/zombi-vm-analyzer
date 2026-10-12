@@ -1,5 +1,7 @@
 # Zombie VM Analyzer v4.0
 
+[![CI](https://github.com/djanoer/zombi-vm-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/djanoer/zombi-vm-analyzer/actions/workflows/ci.yml)
+
 Aplikasi Streamlit untuk menganalisis VM idle/zombie dari data vROps — membantu mengidentifikasi VM yang tidak terpakai agar bisa ditindaklanjuti (disposal/reclaim).
 
 ## Fitur Utama
